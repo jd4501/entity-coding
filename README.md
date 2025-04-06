@@ -34,6 +34,15 @@ This repository builds upon and modifies the [PLM-CA repository](https://github.
 
 ## Installation
 
+To correctly clone your repo with the submodule and your edits included:
+
+bash
+Copy
+Edit
+git clone https://github.com/your-username/your-project.git
+cd your-project
+git submodule update --init --recursive
+
 1. **Clone PLM-CA Repository**  
    First, clone the [PLM-CA repository](https://github.com/JoakimEdin/explainable-medical-coding) and follow their setup instructions.
 
