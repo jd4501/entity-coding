@@ -43,26 +43,31 @@ git clone https://github.com/your-username/your-project.git
 cd your-project
 git submodule update --init --recursive
 
-1. **Clone PLM-CA Repository**  
-   First, clone the [PLM-CA repository](https://github.com/JoakimEdin/explainable-medical-coding) and follow their setup instructions.
-
-   - You do _not_ need to run `make_prepare_everything` (since the PLM-CA trained coding models are not needed for this work).
-   - Instead, run the Makefiles up to (and including) `make download_roberta`.
-
-2. **Clone This Repository**  
-   Clone or download **this** repository.
-
 3. **Create Conda Environment**  
    Navigate to this repository’s root folder and run:
+
    ```
    conda env create -f environment.yml
    conda activate entitycoding
    pip install -r requirements.txt
    ```
 
+   TODO: test making env, then bypassing PLM-CA make setup step
+
+1. **Clone PLM-CA Repository**  
+   First, clone the [PLM-CA repository](https://github.com/JoakimEdin/explainable-medical-coding) and follow their setup instructions.
+
+   - You do _not_ need to run `make_prepare_everything` (since the PLM-CA trained coding models are not needed for this work).
+   - Instead, run the Makefiles up to (and including) `make download_roberta`.
+
+1. **Clone This Repository**  
+   Clone or download **this** repository.
+
 ## Download and Unzip Models
 
 Download the trained models (NER, AC, and RoBERTa-PM) and unzip them as follows:
+
+python download_models.py --cleanup
 
 - **NER Model** [Link](https://drive.google.com/file/d/1GZwp5E0yK-q-17JWznZx4eLR9zKVsJK6/view?usp=sharing) → `data/models/ner_model`
 - **AC Model** [Link](https://drive.google.com/file/d/1WEqsBbTSibrGmq_O0zEsU5rTmohVaMgQ/view?usp=sharing) → `data/models/ac_model`

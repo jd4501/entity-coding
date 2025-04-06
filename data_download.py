@@ -1,5 +1,7 @@
 import argparse
 import os
+import re
+import string
 import zipfile
 import tarfile
 import requests
@@ -7,12 +9,34 @@ import gdown
 import yaml
 from tqdm import tqdm
 
-def download_from_drive(url, output_path):
+def sanitize_filename(name):
+    # Removes invalid characters for Windows filenames
+    valid_chars = f"-_.() {string.ascii_letters}{string.digits}"
+    return ''.join(c for c in name if c in valid_chars) or "downloaded_file"
+
+def download_from_drive(url, output_path, filename):
     """
     Download a file from Google Drive using gdown.
+    Extracts file ID from URL and ensures valid filenames for Windows.
     """
+    # Extract file ID from URL
+    match = re.search(r"/d/([a-zA-Z0-9_-]+)", url)
+    if not match:
+        raise ValueError("Invalid Google Drive URL")
+
+    file_id = match.group(1)
+
+    # Make sure the output directory exists
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    gdown.download(url, output_path, quiet=False, fuzzy=True)
+
+    # If the output filename is not specified properly, sanitize it
+    filename = os.path.basename(output_path)
+    clean_filename = sanitize_filename(filename)
+    
+    clean_output_path = os.path.join(os.path.dirname(output_path), clean_filename)
+
+    # Perform the download using gdown
+    gdown.download(id=file_id, output=clean_output_path, quiet=False)
 
 def download_from_url(url, output_path):
     """
@@ -57,7 +81,7 @@ def untar_file(tar_path, extract_to):
             tar.extract(member, extract_to)
     print("✅ Extraction complete.")
 
-def process_download(url, target_dir, cleanup, is_external=False):
+def process_download(url, target_dir, filename, cleanup, is_external=False):
     """
     Download and extract a file from a given URL into the target directory.
 
@@ -68,14 +92,18 @@ def process_download(url, target_dir, cleanup, is_external=False):
     os.makedirs(target_dir, exist_ok=True)
     temp_dir = "downloads"
     os.makedirs(temp_dir, exist_ok=True)
-    filename = os.path.basename(url)
+
+    # Use sanitized basename from URL
+    if is_external == True:
+        raw_filename = os.path.basename(url)
+        filename = sanitize_filename(raw_filename)
     archive_path = os.path.join(temp_dir, filename)
     
     print(f"\n📥 Downloading file from {url}...")
     if is_external:
         download_from_url(url, archive_path)
     else:
-        download_from_drive(url, archive_path)
+        download_from_drive(url, archive_path, filename)
     
     # Extract based on file extension or simply move the file if not an archive.
     if archive_path.endswith(".zip"):
@@ -118,33 +146,33 @@ def main():
 
     # Process NER Model (Google Drive)
     if config_data.get('ner'):
-        target = os.path.join('data', 'models', 'ner_model')
-        process_download(config_data['ner'], target, args.cleanup, is_external=False)
+        target = os.path.join('data', 'models')
+        process_download(config_data['ner'], target, 'ner_model.zip', args.cleanup, is_external=False)
 
     # Process AC Model (Google Drive)
     if config_data.get('ac'):
-        target = os.path.join('data', 'models', 'ac_model')
-        process_download(config_data['ac'], target, args.cleanup, is_external=False)
+        target = os.path.join('data', 'models')
+        process_download(config_data['ac'], target, 'ac_model.zip', args.cleanup, is_external=False)
 
     # Process RoBERTa Model (External URL)
     if config_data.get('roberta'):
         target = os.path.join('data', 'models', 'RoBERTa-base-PM-M3-Voc-distill-align-hf')
-        process_download(config_data['roberta'], target, args.cleanup, is_external=True)
+        process_download(config_data['roberta'], target, 'roberta', args.cleanup, is_external=True)
 
     # Process Entity-only Model and Tokenizer (Google Drive)
     if config_data.get('entity'):
         entity_config = config_data['entity']
         if 'model' in entity_config:
-            target_entity = os.path.join('modules', 'plm-ca', 'models', 'entityonly')
-            process_download(entity_config['model'], target_entity, args.cleanup, is_external=False)
+            target_entity = os.path.join('modules', 'plm_ca', 'models')
+            process_download(entity_config['model'], target_entity, 'entityonly.zip', args.cleanup, is_external=False)
         if 'tokenizer' in entity_config:
-            target_tokenizer = os.path.join('modules', 'plm-ca', 'models', 'tokenizer_latest')
-            process_download(entity_config['tokenizer'], target_tokenizer, args.cleanup, is_external=False)
+            target_tokenizer = os.path.join('modules', 'plm_ca', 'models')
+            process_download(entity_config['tokenizer'], target_tokenizer, 'tokenizer_latest.zip', args.cleanup, is_external=False)
 
     # Process Full-text Model (Google Drive)
     if config_data.get('fulltext'):
-        target = os.path.join('modules', 'plm-ca', 'models', 'fulltext')
-        process_download(config_data['fulltext'], target, args.cleanup, is_external=False)
+        target = os.path.join('modules', 'plm_ca', 'models')
+        process_download(config_data['fulltext'], target, 'fulltext.zip', args.cleanup, is_external=False)
 
 if __name__ == "__main__":
     main()
