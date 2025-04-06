@@ -1,0 +1,581 @@
+{
+  "section_rules": [
+    {
+      "literal": "ADMISSION DIAGNOSIS:",
+      "category": "admission_diagnosis"
+    },
+    {
+      "literal": "ALLERGIC REACTIONS:",
+      "category": "allergies"
+    },
+    {
+      "literal": "ALLERGIES:",
+      "category": "allergies"
+    },
+    {
+      "literal": "Allergies:",
+      "category": "allergies"
+    },
+    {
+      "literal": "CHIEF COMPLAINT:",
+      "category": "chief_complaint"
+    },
+    {
+      "literal": "Chief Complaint:",
+      "category": "chief_complaint"
+    },
+    {
+      "literal": "Major Surgical or Invasive Procedure:",
+      "category": "surgical_procedure"
+    },
+    {
+      "literal": "ADMISSION DIAGNOSES:",
+      "category": "admission_diagnosis"
+    },
+    {
+      "literal": "Primary Diagnosis:",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "SECONDARY DIAGNOSES:",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "Secondary Diagnoses:",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "Secondary Diagnosis:",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "Secondary:",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "Family History:",
+      "category": "family_history"
+    },
+    {
+      "literal": "FAMILY HISTORY:",
+      "category": "family_history"
+    },
+    {
+      "literal": "HISTORY OF PRESENT ILLNESS:",
+      "category": "history_of_present_illness"
+    },
+    {
+      "literal": "HISTORY OF PRESENTING ILLNESS:",
+      "category": "history_of_present_illness"
+    },
+    {
+      "literal": "History present illness:",
+      "category": "history_of_present_illness"
+    },
+    {
+      "literal": "HPI:",
+      "category": "history_of_present_illness"
+    },
+    {
+      "literal": "Consulting HPI:",
+      "category": "history_of_present_illness"
+    },
+    {
+      "literal": "Consult:",
+      "category": "history_of_present_illness"
+    },
+    {
+      "literal": "Clinical Preamble:",
+      "category": "history_of_present_illness"
+    },
+    {
+      "literal": "CLINICAL INDICATION:",
+      "category": "history_of_present_illness"
+    },
+    {
+      "literal": "CLINICAL PREAMBLE:",
+      "category": "history_of_present_illness"
+    },
+    {
+      "literal": "Brief Hospital Course:",
+      "category": "hospital_course"
+    },
+    {
+      "literal": "CONCISE SUMMARY OF HOSPITAL COURSE BY ISSUE/SYSTEM:",
+      "category": "hospital_course"
+    },
+    {
+      "literal": "HOSPITAL COURSE:",
+      "category": "hospital_course"
+    },
+    {
+      "literal": "SUMMARY OF HOSPITAL COURSE:",
+      "category": "hospital_course"
+    },
+    {
+      "literal": "IMAGING:",
+      "category": "imaging"
+    },
+    {
+      "literal": "Imaging:",
+      "category": "imaging"
+    },
+    {
+      "literal": "MRI:",
+      "category": "imaging"
+    },
+    {
+      "literal": "Radiology:",
+      "category": "imaging"
+    },
+    {
+      "literal": "ECHO:",
+      "category": "labs_and_studies"
+    },
+    {
+      "literal": "On exam:",
+      "category": "labs_and_studies"
+    },
+    {
+      "literal": "Laboratory Tests:",
+      "category": "labs_and_studies"
+    },
+    {
+      "literal": "Laboratory Last Values:",
+      "category": "labs_and_studies"
+    },
+    {
+      "literal": "Pertinent Results:",
+      "category": "labs_and_studies"
+    },
+    {
+      "literal": "STUDIES:",
+      "category": "labs_and_studies"
+    },
+    {
+      "literal": "Studies:",
+      "category": "labs_and_studies"
+    },
+    {
+      "literal": "ACTIVE MEDICATIONS LIST:",
+      "category": "medications"
+    },
+    {
+      "literal": "ACTIVE MEDICATIONS:",
+      "category": "medications"
+    },
+    {
+      "literal": "ADMISSION MEDICATIONS:",
+      "category": "medications"
+    },
+    {
+      "literal": "CURRENT MEDICATIONS:",
+      "category": "medications"
+    },
+    {
+      "literal": "DISCHARGE MEDICATIONS:",
+      "category": "medications_discharge"
+    },
+    {
+      "literal": "Discharge Medications:",
+      "category": "medications_discharge"
+    },
+    {
+      "literal": "HOME MEDICATIONS:",
+      "category": "medications"
+    },
+    {
+      "literal": "MEDICATIONS AT HOME:",
+      "category": "medications"
+    },
+    {
+      "literal": "MEDICATIONS LIST:",
+      "category": "medications"
+    },
+    {
+      "literal": "MEDICATIONS ON ADMISSION:",
+      "category": "medications"
+    },
+    {
+      "literal": "MEDICATIONS ON DISCHARGE:",
+      "category": "medications_discharge"
+    },
+    {
+      "literal": "MEDICATIONS ON TRANSFER:",
+      "category": "medications"
+    },
+    {
+      "literal": "MEDICATIONS PRIOR TO ADMISSION:",
+      "category": "medications"
+    },
+    {
+      "literal": "MEDICATIONS:",
+      "category": "medications"
+    },
+    {
+      "literal": "Impression and plan:",
+      "category": "observation_and_plan"
+    },
+    {
+      "literal": "DISCHARGE DIAGNOSES:",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "Discharge Plan:",
+      "category": "observation_and_plan"
+    },
+    {
+      "literal": "DISCHARGE DIAGNOSIS:",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "Discharge Condition:",
+      "category": "observation_and_plan"
+    },
+    {
+      "literal": "Discharge Diagnoses:",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "Discharge Diagnosis:",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "Discharge Disposition:",
+      "category": "observation_and_plan"
+    },
+    {
+      "literal": "FINAL DIAGNOSES:",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "FINAL DIAGNOSIS:",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "Current Medical Problems:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "PAST HISTORY:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "CLINICAL HISTORY:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "History of Chronic Illness:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "MHx:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "PAST HISTORY:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "PAST MEDICAL HISTORY:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "Past med history:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "PAST MEDICAL Hx:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "PAST SURGICAL HISTORY:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "PMH:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "PMHx:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "Past Medical History:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "DISCHARGE INSTRUCTIONS/FOLLOWUP:",
+      "category": "patient_instructions"
+    },
+    {
+      "literal": "DISCHARGE INSTRUCTIONS:",
+      "category": "patient_instructions"
+    },
+    {
+      "literal": "Discharge Instructions:",
+      "category": "patient_instructions"
+    },
+    {
+      "literal": "Followup Instructions:",
+      "category": "patient_instructions"
+    },
+    {
+      "literal": "PHYSICAL EXAM:",
+      "category": "physical_exam"
+    },
+    {
+      "literal": "PHYSICAL EXAMINATION:",
+      "category": "physical_exam"
+    },
+    {
+      "literal": "Physical Exam:",
+      "category": "physical_exam"
+    },
+    {
+      "literal": "Physical exam:",
+      "category": "physical_exam"
+    },
+    {
+      "literal": "Active Problem List:",
+      "category": "problem_list"
+    },
+    {
+      "literal": "Current Problems:",
+      "category": "problem_list"
+    },
+    {
+      "literal": "Medical Problems:",
+      "category": "problem_list"
+    },
+    {
+      "literal": "PROBLEM LIST:",
+      "category": "problem_list"
+    },
+    {
+      "literal": "Problem List:",
+      "category": "problem_list"
+    },
+    {
+      "literal": "PROCEDURE NOTE:",
+      "category": "hospital_course"
+    },
+    {
+      "literal": "PROCEDURE AND FINDING:",
+      "category": "hospital_course"
+    },
+    {
+      "literal": "REASON FOR THIS EXAMINATION:",
+      "category": "reason_for_examination"
+    },
+    {
+      "literal": "Electronic Signature:",
+      "category": "signature"
+    },
+    {
+      "literal": "Signed electronically by:",
+      "category": "signature"
+    },
+    {
+      "literal": "PMHSx:",
+      "category": "social_history"
+    },
+    {
+      "literal": "PSH:",
+      "category": "social_history"
+    },
+    {
+      "literal": "SH:",
+      "category": "social_history"
+    },
+    {
+      "literal": "Sexual History:",
+      "category": "social_history"
+    },
+    {
+      "literal": "Social History:",
+      "category": "social_history"
+    },
+    {
+      "literal": "SOCIAL HISTORY:",
+      "category": "social_history"
+    },
+    {
+      "literal": "Attending:",
+      "category": "attending"
+    },
+    {
+      "literal": "RADIOLOGY/IMAGING:",
+      "category": "imaging"
+    },
+    {
+      "literal": "Pertinent Results:",
+      "category": "labs_and_studies"
+    },
+    {
+      "literal": "PERTINENT LABORATORY DATA ON PRESENTATION:",
+      "category": "labs_and_studies"
+    },
+    {
+      "literal": "MEDICATIONS ADMISSION:",
+      "category": "medications"
+    },
+    {
+      "literal": "Medications on Admission:",
+      "category": "medications"
+    },
+    {
+      "literal": "MEDICATIONS ON ADMISSION:",
+      "category": "medications"
+    },
+    {
+      "literal": "HISTORY OF PRESENTING ILLNESS:",
+      "category": "history_of_present_illness"
+    },
+    {
+      "literal": "HISTORY OF PRESENT ILLNESS:",
+      "category": "history_of_present_illness"
+    },
+    {
+      "literal": "History of Present Illness:",
+      "category": "history_of_present_illness"
+    },
+    {
+      "literal": "History of Presenting Illness:",
+      "category": "history_of_present_illness"
+    },
+    {
+      "literal": "PAST MEDICAL HISTORY:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "Past Medical History:",
+      "category": "past_medical_history"
+    },
+    {
+      "literal": "ALLERGIES:",
+      "category": "allergies"
+    },
+    {
+      "literal": "SOCIAL HISTORY:",
+      "category": "social_history"
+    },
+    {
+      "literal": "Social History:",
+      "category": "social_history"
+    },
+    {
+      "literal": "SOCIAL HISTORY:",
+      "category": "social_history"
+    },
+    {
+      "literal": "FAMILY HISTORY:",
+      "category": "family_history"
+    },
+    {
+      "literal": "PHYSICAL EXAM:",
+      "category": "physical_exam"
+    },
+    {
+      "literal": "Physical Exam:",
+      "category": "physical_exam"
+    },
+    {
+      "literal": "PHYSICAL EXAMINATION:",
+      "category": "physical_exam"
+    },
+    {
+      "literal": "Hospital Course:",
+      "category": "hospital_course"
+    },
+    {
+      "literal": "HOSPITAL COURSE",
+      "category": "hospital_course"
+    },
+    {
+      "literal": "Discharge Medications:",
+      "category": "medications_discharge"
+    },
+    {
+      "literal": "Discharge Disposition:",
+      "category": "observation_and_plan"
+    },
+    {
+      "literal": "DISCHARGE DISPOSITION:",
+      "category": "observation_and_plan"
+    },
+    {
+      "literal": "Discharge Diagnosis",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "Discharge Diagnoses",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "DISCHARGE DIAGNOSES",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "DISCHARGE DIAGNOSIS",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "Secondary diagnosis",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "SECONDARY DIAGNOSIS",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "SECONDARY DIAGNOSES",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "Secondary Diagnoses",
+      "category": "diagnoses"
+    },
+    {
+      "literal": "Discharge Condition:",
+      "category": "observation_and_plan"
+    },
+    {
+      "literal": "DISCHARGE CONDITION:",
+      "category": "observation_and_plan"
+    },
+
+    {
+      "literal": "Discharge Instructions:",
+      "category": "patient_instructions"
+    },
+    {
+      "literal": "DISCHARGE INSTRUCTIONS:",
+      "category": "patient_instructions"
+    },
+    {
+      "literal": "Medication changes:",
+      "category": "medications"
+    },
+    {
+      "literal": "MEDICATIONS ON DISCHARGE:",
+      "category": "medications_discharge"
+    },
+    {
+      "literal": "Review of Systems:",
+      "category": "to_filter"
+    },
+    {
+      "literal": "Review of systems:",
+      "category": "to_filter"
+    },
+    {
+      "literal": "REVIEW OF SYSTEMS:",
+      "category": "to_filter"
+    },
+    {
+      "literal": "ROS:",
+      "category": "to_filter"
+    }
+  ]
+}
