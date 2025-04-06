@@ -1,0 +1,3 @@
+[submodule "external/plm_ca"]
+	path = external/plm_ca
+	url = https://github.com/jd4501/explainable-medical-coding.git
