@@ -47,7 +47,7 @@ Note: It uses this [PLM-CA commit](https://github.com/JoakimEdin/explainable-med
 
 **4. Download NER/AC/Coding Models** 
 
-This repository requires several pre-trained models that are hosted externally due to GitHub file size limits. Use the automated download script to fetch all required models:
+This repository requires several pre-trained models that are hosted externally due to GitHub file size limits. Navigate back to the root directory, then use the automated download script to fetch all required models:
 
 **Activate the conda environment first:**
 ```bash
