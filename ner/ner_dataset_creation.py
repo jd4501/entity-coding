@@ -3,15 +3,14 @@ import numpy as np
 
 # File paths
 services_file = 'services.csv' # Download from the hosp directory in the base MIMIC-IV dataset
-notes_file = 'backup-CapstoneProject/NER/discharge.csv' # Download from MIMIC-IV note
-snomed_ner_data_file = 'backup-CapstoneProject/NER/mimic-iv_notes_training_set.csv' # Download from SNOMED CT Entity Linking Challenge (Physionet)
+notes_file = 'discharge.csv' # Download from MIMIC-IV note
+snomed_ner_data_file = 'mimic-iv_notes_training_set.csv' # Download from SNOMED CT Entity Linking Challenge (Physionet)
 
 # Output paths
-new_dataset_filename = 'CapstoneProject/data/extra_notes_to_annotate'
+new_dataset_filename = 'data/ner/ner_dataset_notes'
 
-# =============================================================================
 # Step 1: Load data and re-attach service type information
-# =============================================================================
+
 services_df = pd.read_csv(services_file) 
 all_notes_df = pd.read_csv(notes_file) 
 
@@ -30,9 +29,9 @@ snomed_notes_with_service = pd.merge(
     how='left'
 ).drop_duplicates('note_id')
 
-# =============================================================================
+
 # Step 2: Compute proportions of service types in SNOMED-included and general discharge summaries
-# =============================================================================
+
 # Calculate counts and proportions for SNOMED-included notes
 included_counts = snomed_notes_with_service.groupby('curr_service')['note_id'].count()
 included_proportions = included_counts / included_counts.sum()
@@ -70,9 +69,9 @@ comparison_stats = pd.merge(
 print("Comparison of service type counts and proportions:")
 print(comparison_stats)
 
-# =============================================================================
+
 # Optional Step 3 - Evaluate how well the SNOMED dataset adheres wrt surgical cases
-# =============================================================================
+
 # service types considered surgical
 surgical_services = ['CSURG', 'NSURG', 'ORTHO', 'PSURG', 'SURG', 'TRAUM', 'TSURG', 'VSURG', 'ENT']
 
@@ -84,9 +83,9 @@ print(f"Proportion of surgical services (General discharge notes): {prop_surgica
 
 # Note: was ~ 26.5% (snomed) vs 27.8% (general mimic) - but some subcategories overlooked 
 
-# =============================================================================
+
 # Step 4: Create a new set of notes to match the true (general) proportions
-# =============================================================================
+
 # Set the target total number of additional samples desired (note: due to rounding this number inflates to 400)
 target_total_samples = 389
 
@@ -107,9 +106,9 @@ print(comparison_stats[['count_included', 'proportion_included', 'count_general'
 total_additional_needed = comparison_stats['additional_samples_needed'].sum()
 print(f"Total additional samples needed: {total_additional_needed}")
 
-# =============================================================================
+
 # Sample extra notes (from general discharge notes not already in the SNOMED set)
-# =============================================================================
+
 # Note: A decision was made here to increase NER breadth by not overlapping with notes in the SNOMED challenge
 sampled_extra_notes_list = []
 
@@ -133,9 +132,9 @@ sampled_extra_notes = sampled_extra_notes[['note_id', 'subject_id', 'hadm_id', '
 sampled_extra_notes.to_csv(f"{new_dataset_filename}.csv", index=False)
 sampled_extra_notes.to_parquet(f"{new_dataset_filename}.parquet", index=False)
 
-# =============================================================================
+
 # Compare dataset proportions
-# =============================================================================
+
 combined_notes_df = pd.concat([snomed_notes_with_service, sampled_extra_notes], ignore_index=True)
 final_counts = combined_notes_df.groupby('curr_service')['note_id'].count()
 final_proportions = final_counts / final_counts.sum()

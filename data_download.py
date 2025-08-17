@@ -47,7 +47,7 @@ def download_from_url(url, output_path):
     total_size = int(response.headers.get('content-length', 0))
     block_size = 1024  # 1 KB
     with open(output_path, 'wb') as file, tqdm(
-        desc=f"📦 Downloading {os.path.basename(output_path)}",
+        desc=f"Downloading {os.path.basename(output_path)}",
         total=total_size,
         unit='B',
         unit_scale=True,
@@ -61,25 +61,25 @@ def unzip_file(zip_path, extract_to):
     """
     Extract a ZIP archive.
     """
-    print(f"\n🗜️ Unzipping {zip_path} to {extract_to}...")
+    print(f"\n Unzipping {zip_path} to {extract_to}...")
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         file_list = zip_ref.infolist()
         os.makedirs(extract_to, exist_ok=True)
         for file in tqdm(file_list, desc="Extracting", unit="file"):
             zip_ref.extract(file, extract_to)
-    print("✅ Unzipping complete.")
+    print("Unzipping complete.")
 
 def untar_file(tar_path, extract_to):
     """
     Extract a TAR.GZ archive.
     """
-    print(f"\n🗜️ Extracting TAR.GZ {tar_path} to {extract_to}...")
+    print(f"\n Extracting TAR.GZ {tar_path} to {extract_to}...")
     with tarfile.open(tar_path, "r:gz") as tar:
         members = tar.getmembers()
         os.makedirs(extract_to, exist_ok=True)
         for member in tqdm(members, desc="Extracting", unit="file"):
             tar.extract(member, extract_to)
-    print("✅ Extraction complete.")
+    print("Extraction complete.")
 
 def process_download(url, target_dir, filename, cleanup, is_external=False):
     """
@@ -99,7 +99,7 @@ def process_download(url, target_dir, filename, cleanup, is_external=False):
         filename = sanitize_filename(raw_filename)
     archive_path = os.path.join(temp_dir, filename)
     
-    print(f"\n📥 Downloading file from {url}...")
+    print(f"\nDownloading file from {url}...")
     if is_external:
         download_from_url(url, archive_path)
     else:
@@ -117,7 +117,7 @@ def process_download(url, target_dir, filename, cleanup, is_external=False):
     
     if cleanup and os.path.exists(archive_path):
         os.remove(archive_path)
-        print(f"🧹 Deleted archive: {archive_path}")
+        print(f"Deleted archive: {archive_path}")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -138,7 +138,7 @@ def main():
 
     # Load configuration from YAML file.
     if not os.path.exists(args.config):
-        print(f"❌ Config file not found: {args.config}")
+        print(f"Config file not found: {args.config}")
         return
 
     with open(args.config, 'r') as f:
@@ -163,15 +163,15 @@ def main():
     if config_data.get('entity'):
         entity_config = config_data['entity']
         if 'model' in entity_config:
-            target_entity = os.path.join('modules', 'plm_ca', 'models')
+            target_entity = os.path.join('external', 'plm_ca', 'models')
             process_download(entity_config['model'], target_entity, 'entityonly.zip', args.cleanup, is_external=False)
         if 'tokenizer' in entity_config:
-            target_tokenizer = os.path.join('modules', 'plm_ca', 'models')
+            target_tokenizer = os.path.join('external', 'plm_ca', 'models')
             process_download(entity_config['tokenizer'], target_tokenizer, 'tokenizer_latest.zip', args.cleanup, is_external=False)
 
     # Process Full-text Model (Google Drive)
     if config_data.get('fulltext'):
-        target = os.path.join('modules', 'plm_ca', 'models')
+        target = os.path.join('external', 'plm_ca', 'models')
         process_download(config_data['fulltext'], target, 'fulltext.zip', args.cleanup, is_external=False)
 
 if __name__ == "__main__":

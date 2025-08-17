@@ -8,6 +8,9 @@ import numpy as np
 import pandas as pd
 import medspacy
 import concurrent.futures
+import multiprocessing
+import threading
+import uuid
 import argparse
 from functools import partial
 from spacy.language import Language
@@ -29,30 +32,44 @@ from transformers import (
 # Model Loading & Configuration
 # -----------------------------------------------------------------------------
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# Global variables for model paths
+NER_MODEL_DIR = "data/models/ner_model"
+AC_MODEL_DIR = "data/models/ac_model"
+save_formatted_texts = False  # Global flag (can be command line overwritten) - saving notes for visualization
+save_ner_docs = False  # Global flag (can be command line overwritten) - saving HTML docs with NER/AC applied
 
-# Load NER model from the saved directory
-save_dir = "data/models/ner_model"
-tokenizer_NER = RobertaTokenizerFast.from_pretrained(save_dir, add_prefix_space=False)
-config_path = os.path.join(save_dir, "model_config.json")
-config = RobertaConfig.from_json_file(config_path)
-model = RobertaForTokenClassification(config)
-model_weights_path = os.path.join(save_dir, "final_model_for_inference.pt")
-model.load_state_dict(torch.load(model_weights_path, map_location=device))
-model.to(device)
-model.eval()
+# Thread-local storage for models to avoid reloading in each worker
+thread_local_data = threading.local()
 
-# Load assertion classifier
-tokenizer_AC = AutoTokenizer.from_pretrained("data/models/ac_model")
-model_AC = AutoModelForSequenceClassification.from_pretrained(
-    "data/models/ac_model"
-).to(device)
-classifier = TextClassificationPipeline(
-    model=model_AC, tokenizer=tokenizer_AC, device=0 if torch.cuda.is_available() else -1
-)
-
-# Toggle to save re-formatted notes for later visualization
-save_formatted_texts = False
+def get_models():
+    """Get or initialize models for the current thread/process"""
+    if not hasattr(thread_local_data, 'models_loaded'):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Load NER model
+        tokenizer_NER = RobertaTokenizerFast.from_pretrained(NER_MODEL_DIR, add_prefix_space=False)
+        config_path = os.path.join(NER_MODEL_DIR, "model_config.json")
+        config = RobertaConfig.from_json_file(config_path)
+        model = RobertaForTokenClassification(config)
+        model_weights_path = os.path.join(NER_MODEL_DIR, "final_model_for_inference.pt")
+        model.load_state_dict(torch.load(model_weights_path, map_location=device))
+        model.to(device)
+        model.eval()
+        
+        # Load assertion classifier
+        tokenizer_AC = AutoTokenizer.from_pretrained(AC_MODEL_DIR)
+        model_AC = AutoModelForSequenceClassification.from_pretrained(AC_MODEL_DIR).to(device)
+        classifier = TextClassificationPipeline(
+            model=model_AC, tokenizer=tokenizer_AC, device=0 if torch.cuda.is_available() else -1
+        )
+        
+        thread_local_data.device = device
+        thread_local_data.tokenizer_NER = tokenizer_NER
+        thread_local_data.model = model
+        thread_local_data.classifier = classifier
+        thread_local_data.models_loaded = True
+    
+    return thread_local_data.device, thread_local_data.tokenizer_NER, thread_local_data.model, thread_local_data.classifier
 
 # -----------------------------------------------------------------------------
 # Helper Functions
@@ -69,6 +86,8 @@ def infer_sentences(text: str) -> list:
     Perform NER inference on the input text. Returns a list of entity dictionaries
     containing 'start', 'end', and 'label'.
     """
+    device, tokenizer_NER, model, _ = get_models()
+    
     inputs = tokenizer_NER(
         text,
         return_tensors="pt",
@@ -134,8 +153,9 @@ def infer_sentences(text: str) -> list:
 
 def get_token_length(text: str) -> int:
     """
-    Returns the number of tokens in the text using the NER tokenizer.
+    Returns the number of tokens in the text using the NER (RoBERTa) tokenizer.
     """
+    _, tokenizer_NER, _, _ = get_models()
     return len(tokenizer_NER.encode(text))
 
 def process_batch(batch_sentences: list, batch_sentence_starts: list) -> list:
@@ -164,6 +184,9 @@ def process_batch(batch_sentences: list, batch_sentence_starts: list) -> list:
                 adjusted_entities.append(entity)
                 break
     return adjusted_entities
+
+# Functions to handle long sentence splitting
+# These make up for flaws in the PyRuSH sentence splitter
 
 def find_split_index(text: str, midpoint: int, punctuation_list: list) -> int:
     """
@@ -250,7 +273,7 @@ def infer_DC(sentences: list, sentence_starts: list) -> list:
 
     return all_entities
 
-def check_assertion(text: str, label: str) -> str:
+def check_assertion(text: str, label: str, classifier) -> str:
     """
     Use the assertion classifier to classify the assertion status of an entity.
     Returns a modified label in the format '<label>_<assertion>'.
@@ -268,7 +291,7 @@ def check_assertion(text: str, label: str) -> str:
 
 def reconnect_stop_word_splits(sentences: list, stop_words: set = None) -> list:
     """
-    Merge adjacent sentences when a sentence ends with a stop word (e.g., articles,
+    Merge adjacent sentences that were incorrectly split, when a sentence ends with a stop word (e.g., articles,
     determiners, conjunctions) and the following sentence starts with a capital letter.
     
     :param sentences: List of sentence strings.
@@ -333,7 +356,7 @@ def spans_overlap(span1: Span, span2: Span) -> bool:
 # Document Processing
 # -----------------------------------------------------------------------------
 
-def process_single_document(text: str, note_id, pattern_midline_newlines, nlp, classifier, infer_DC) -> tuple:
+def process_single_document(text: str, note_id, save_formatted: bool = False, save_ner_docs: bool = False) -> tuple:
     """
     Process a single document:
       1. Clean and split the text into sentences.
@@ -343,11 +366,35 @@ def process_single_document(text: str, note_id, pattern_midline_newlines, nlp, c
       5. Run NER inference and adjust entity spans.
       6. Update each entity's label using assertion classification.
       7. Filter out unwanted entities and sections.
+      8. OPTIONALLY save the formatted text and NER results for visualisation.
     
     Returns:
       A tuple (note_id, index_data), where index_data is a list of [start_index, end_index, text]
       for the remaining entities.
     """
+    # Initialize models for this worker process
+    device, tokenizer_NER, model, classifier = get_models()
+    
+    # Initialize spaCy pipeline and other components for this worker
+    pattern_midline_newlines = re.compile(r'(?<=\S|\s)\n(?=\S)')
+    nlp = spacy.blank("en")
+    
+    # Create unique factory names to avoid conflicts in multiprocessing
+    splitter_name = f"custom_splitter_{uuid.uuid4().hex[:8]}"
+    sectionizer_name = f"custom_sectionizer_{uuid.uuid4().hex[:8]}"
+    
+    @Language.factory(splitter_name)
+    def create_custom_splitter(nlp, name):
+        return PyRuSHSentencizer(nlp=nlp, rules_path='ner/rush_rules.tsv')
+    
+    nlp.add_pipe(splitter_name)
+    
+    @Language.factory(sectionizer_name)
+    def create_custom_sectionizer(nlp, name):
+        return Sectionizer(nlp, rules='ner/section_patterns.json')
+    
+    nlp.add_pipe(sectionizer_name, last=True)
+    
     text_proc = text.strip()
     doc_sentence_splitted = nlp(text_proc)
     sections = doc_sentence_splitted._.sections
@@ -392,7 +439,7 @@ def process_single_document(text: str, note_id, pattern_midline_newlines, nlp, c
     doc = nlp(new_doc)
 
     # Optionally save the formatted text for visualization
-    if save_formatted_texts:
+    if save_formatted:
         os.makedirs('results/formatted_texts', exist_ok=True)
         formatted_filename = os.path.join('results/formatted_texts', f'formatted_{note_id}.txt')
         with open(formatted_filename, 'w', encoding='utf-8') as f:
@@ -430,12 +477,14 @@ def process_single_document(text: str, note_id, pattern_midline_newlines, nlp, c
         context_left = doc[start_within_sentence:ent.start].text
         context_right = doc[ent.end:end_within_sentence].text
         input_text = f"{context_left} <entity> {ent.text} <entity> {context_right}"
-        result = check_assertion(input_text, ent.label_)
+        result = check_assertion(input_text, ent.label_, classifier)
         new_ent = Span(doc, ent.start, ent.end, label=result)
         ents[i] = new_ent
     doc.ents = ents
 
     # Filtering and output construction
+    # Edit these to include/excldue specific entity-assertion combinations
+    # Comment-out all entries to extract everything
     excluded_labels = {
         "disorder_ABSENT",
         "disorder_HYPOTHETICAL",
@@ -507,6 +556,83 @@ def process_single_document(text: str, note_id, pattern_midline_newlines, nlp, c
         index_data.append([start_idx, end_idx, text])
         final_text = '\n'.join(output)
 
+    # Save the note with entities highlighted in HTML format
+    # Note: If you included additional entity-assertion combos, you'll need to add these to `colors`. 
+    if save_ner_docs:
+        PALETTE = {
+            "disorder": {
+                "PRESENT": "#60A5FA",
+                "POSSIBLE": "#93C5FD",
+                "HYPOTHETICAL": "#BFDBFE",
+                "ABSENT": "#DBEAFE",
+                "FAMILY": "#EFF6FF",
+            },
+            "procedure": {
+                "PRESENT": "#A78BFA",
+                "POSSIBLE": "#C4B5FD",
+                "HYPOTHETICAL": "#DDD6FE",
+                "ABSENT": "#EDE9FE",
+                "FAMILY": "#F5F3FF",
+            },
+            "medication": {
+                "PRESENT": "#34D399",
+                "POSSIBLE": "#6EE7B7",
+                "HYPOTHETICAL": "#A7F3D0",
+                "ABSENT": "#D1FAE5",
+                "FAMILY": "#ECFDF5",
+            },
+            "abnormal_finding": {
+                "PRESENT": "#FB923C",
+                "POSSIBLE": "#FDBA74",
+                "HYPOTHETICAL": "#FED7AA",
+                "ABSENT": "#FFEDD5",
+                "FAMILY": "#FFF7ED",
+            },
+            "normal_finding": {
+                "PRESENT": "#2DD4BF",
+                "POSSIBLE": "#5EEAD4",
+                "HYPOTHETICAL": "#99F6E4",
+                "ABSENT": "#CCFBF1",
+                "FAMILY": "#F0FDF4",
+            },
+            "health_context": {
+                "PRESENT": "#A3A3A3",
+                "POSSIBLE": "#D4D4D4",
+                "HYPOTHETICAL": "#E5E5E5",
+                "ABSENT": "#F5F5F5",
+                "FAMILY": "#FAFAFA",
+            },
+        }
+
+        def build_colors(palette: dict) -> dict:
+            out = {}
+            for concept, shades in palette.items():
+                for status, hexv in shades.items():
+                    out[f"{concept}_{status}"] = hexv
+            return out
+
+        STATUS_ORDER = ["PRESENT", "POSSIBLE", "HYPOTHETICAL", "ABSENT", "FAMILY"]
+        CONCEPT_ORDER = [
+            "disorder",
+            "procedure",
+            "medication",
+            "abnormal_finding",
+            "normal_finding",
+            "health_context",
+        ]
+
+        # Final colors dict and ordered ents list
+        colors = build_colors(PALETTE)
+        ents = [f"{c}_{s}" for c in CONCEPT_ORDER for s in STATUS_ORDER]
+
+        options = {"ents": ents, "colors": colors}
+
+        html = displacy.render(doc, style="ent", jupyter=False, options=options)
+        html = html.replace(".entity {", ".entity {margin-bottom: 5px; line-height: 3;")
+        os.makedirs("results/ner/docs_with_ner", exist_ok=True)
+        with open(f"results/ner/docs_with_ner/NER_{note_id}.html", "w", encoding="utf-8") as file:
+            file.write(html)
+
     return note_id, index_data
 
 # -----------------------------------------------------------------------------
@@ -517,16 +643,78 @@ pattern_midline_newlines = re.compile(r'(?<=\S|\s)\n(?=\S)')
 nlp = spacy.blank("en")
 # nlp.add_pipe("medspacy_pyrush")  # Uncomment to add the default sentence splitter
 
-def process_documents_from_csv_parallel(filename: str, output_filename: str = 'ner/output_entities.csv', max_workers: int = 2):
+def validate_input_file(filename: str):
+    """Validate input file exists and has correct format. Supports both parquet and CSV files."""
+    if not os.path.exists(filename):
+        print(f"Error: Input file not found: {filename}")
+        print("Make sure the file exists and the path is correct.")
+        return None
+    
+    try:
+        # Detect file format by extension
+        file_ext = os.path.splitext(filename)[1].lower()
+        
+        if file_ext == '.parquet':
+            docs = pd.read_parquet(filename)
+            file_type = "parquet"
+        elif file_ext == '.csv':
+            docs = pd.read_csv(filename)
+            file_type = "CSV"
+        else:
+            print(f"Error: Unsupported file format: {file_ext}")
+            print("Supported formats: .parquet, .csv")
+            return None
+        
+        if 'text' not in docs.columns or 'note_id' not in docs.columns:
+            print(f"Error: Required columns 'text' and 'note_id' not found.")
+            print(f"   Found columns: {list(docs.columns)}")
+            return None
+        
+        print(f"Input {file_type} file validated: {len(docs)} notes ready for processing")
+        return docs
+    except Exception as e:
+        print(f"Error reading input file: {e}")
+        return None
+
+def validate_model_files():
+    """Validate that all required model files exist."""
+    ner_files = [
+        (os.path.join(NER_MODEL_DIR, "final_model_for_inference.pt"), "NER model weights"),
+        (os.path.join(NER_MODEL_DIR, "model_config.json"), "NER model config"),
+        (AC_MODEL_DIR, "Assertion Classification model directory")
+    ]
+    
+    for file_path, description in ner_files:
+        if not os.path.exists(file_path):
+            print(f"Error: {description} not found at {file_path}")
+            print("Make sure you've downloaded all models with: python data_download.py")
+            return False
+    
+    print("All required model files found")
+    return True
+
+def process_documents_from_csv_parallel(filename: str, output_filename: str = 'results/ner/output_entities.csv', max_workers: int = 2, save_formatted: bool = False, save_ner_docs: bool = False):
     """
     Process documents from a parquet file in parallel.
     The input file must contain 'text' and 'note_id' columns.
     Outputs the extracted entities to a CSV file.
     """
-    docs = pd.read_parquet(filename)
-    if 'text' not in docs.columns or 'note_id' not in docs.columns:
-        print("Invalid file: Required columns 'text' and 'note_id' not found.")
+    # Validate input and models
+    docs = validate_input_file(filename)
+    if docs is None:
         return
+    
+    if not validate_model_files():
+        return
+    
+    print(f"Using {max_workers} parallel workers")
+    print(f"GPU available: {torch.cuda.is_available()}")
+    
+    # Create output directory if needed
+    output_dir = os.path.dirname(output_filename)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"Created output directory: {output_dir}")
 
     processed_note_ids = set()
 
@@ -537,35 +725,14 @@ def process_documents_from_csv_parallel(filename: str, output_filename: str = 'n
     else:
         print("Starting fresh processing.")
 
-    # Reinitialize the pattern and nlp object for this function scope
-    pattern_midline_newlines = re.compile(r'(?<=\S|\s)\n(?=\S)')
-    nlp = spacy.blank("en")
-    # nlp.add_pipe("medspacy_pyrush")
-
-    @Language.factory("custom_splitter")
-    def create_custom_splitter(nlp, name):
-        return PyRuSHSentencizer(nlp=nlp, rules_path='ner/rush_rules.tsv')
-    nlp.add_pipe("custom_splitter")
-
-    @Language.factory("custom_sectionizer")
-    def create_custom_sectionizer(nlp, name):
-        return Sectionizer(nlp, rules='ner/section_patterns.json')
-    nlp.add_pipe("custom_sectionizer", last=True)
-
-    process_func = partial(
-        process_single_document,
-        pattern_midline_newlines=pattern_midline_newlines,
-        nlp=nlp,
-        classifier=classifier,
-        infer_DC=infer_DC,
-    )
-
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+    # Set multiprocessing start method to 'spawn' for CUDA compatibility across OS
+    mp_context = multiprocessing.get_context('spawn')
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers, mp_context=mp_context) as executor:
         futures = []
         for row in docs.itertuples():
             note_id = row.note_id
             if note_id not in processed_note_ids:
-                future = executor.submit(process_func, row.text, note_id)
+                future = executor.submit(process_single_document, row.text, note_id, save_formatted, save_ner_docs)
                 futures.append(future)
 
         processed = len(processed_note_ids)
@@ -590,18 +757,22 @@ def process_documents_from_csv_parallel(filename: str, output_filename: str = 'n
 # Main Entry Point
 # -----------------------------------------------------------------------------
 
-if __name__ == '__main__':
+def main():
+    """Main function to handle command line arguments and run entity extraction."""
+    global save_formatted_texts
+    global save_ner_docs
+    
     parser = argparse.ArgumentParser(
-        description="Process a parquet file to extract NER entities using custom pipelines."
+        description="Process a parquet or CSV file to extract NER entities using custom pipelines."
     )
     parser.add_argument(
-        "input_file", help="Path to the input parquet file (must contain 'text' and 'note_id' columns)."
+        "input_file", help="Path to the input file (.parquet or .csv, must contain 'text' and 'note_id' columns)."
     )
     parser.add_argument(
         "--output_file",
         type=str,
-        default="ner/output_entities.csv",
-        help="Output filepath for the results CSV file (default: ner/output_entities.csv)."
+        default="results/ner/output_entities.csv",
+        help="Output filepath for the results CSV file (default: results/ner/output_entities.csv)."
     )
     parser.add_argument(
         "--max_workers",
@@ -609,9 +780,49 @@ if __name__ == '__main__':
         default=5,
         help="Maximum number of parallel workers (default: 5)."
     )
+    parser.add_argument(
+        "--save-formatted-texts",
+        action="store_true",
+        help="Save formatted text files for visualization (stored in results/formatted_texts/)."
+    )
+    parser.add_argument(
+        "--save_ner_docs",
+        action="store_true",
+        help="Save NER processed documents as HTML files in results/ner/docs_with_ner/"
+    )
     args = parser.parse_args()
+    
+    # Update global save_formatted_texts flag based on command-line argument
+    if args.save_formatted_texts:
+        save_formatted_texts = True
+        print("Formatted text saving enabled for visualization")
 
+    if args.save_ner_docs:
+        save_ner_docs = True
+        print("Saving NER processed documents as HTML enabled")
+
+
+    print("Starting entity extraction...")
     start_time = time.time()
-    process_documents_from_csv_parallel(args.input_file, output_filename=args.output_file, max_workers=args.max_workers)
+    process_documents_from_csv_parallel(args.input_file, output_filename=args.output_file, max_workers=args.max_workers, save_formatted=args.save_formatted_texts, save_ner_docs=args.save_ner_docs)
     end_time = time.time()
-    print(f"The function took {end_time - start_time} seconds to run (note: this includes time to setup parallel processing (a few seconds).")
+    
+    # Print completion summary
+    if os.path.exists(args.output_file):
+        try:
+            df_results = pd.read_csv(args.output_file)
+            print(f"\nEntity extraction completed successfully!")
+            print(f"  Processing time: {end_time - start_time:.1f} seconds")
+            print(f"Extracted {len(df_results)} entities from {df_results['note_id'].nunique()} notes")
+            print(f"Results saved to: {args.output_file}")
+            print(f"\nNext step: Run ICD coding inference")
+            print(f"   cd modules/plm_ca")
+            print(f"   python infer_with_explanations.py ../../{args.output_file} ../../results/coded/filename")
+        except Exception as e:
+            print(f"Warning: Processing completed but could not read output file: {e}")
+    else:
+        print(f"Warning: Processing completed but output file not found: {args.output_file}")
+
+
+if __name__ == '__main__':
+    main()
