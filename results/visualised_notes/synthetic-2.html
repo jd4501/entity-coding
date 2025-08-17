@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Document synthetic-2</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            color: #333;
+            background-color: #fafafa;
+        }
+        #main-container {
+            display: flex;
+            height: 100vh;
+        }
+        #main-text {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0;
+            background-color: #ffffff;
+            display: flex;
+            flex-direction: column;
+        }
+        #main-text h1 {
+            position: sticky;
+            top: 0;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            border-bottom: 1px solid #e0e0e0;
+            z-index: 1;
+        }
+        #text-content {
+            padding: 20px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            flex: 1;
+        }
+        #side-bar {
+            width: 300px;
+            overflow-y: auto;
+            border-left: 1px solid #e0e0e0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .highlight {
+            background-color: #fff59d;
+        }
+        h2 {
+            font-size: 18px;
+            color: #424242;
+            margin-top: 0;
+            margin-bottom: 20px;
+        }
+        .code-list {
+            list-style-type: none;
+            padding: 0;
+        }
+        .code-list li {
+            margin-bottom: 10px;
+        }
+        .code-list label {
+            margin-left: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            color: #616161;
+        }
+        input[type="radio"] {
+            cursor: pointer;
+        }
+        strong {
+            font-weight: bold;
+        }
+        #thresholds {
+            margin-bottom: 20px;
+        }
+        #thresholds label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: #424242;
+        }
+        #thresholds input[type="range"] {
+            width: 100%;
+        }
+        #threshold-values {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #757575;
+        }
+    </style>
+</head>
+<body>
+    <div id="main-container">
+        <div id="main-text">
+            <h1>Document synthetic-2</h1>
+            <div id="text-content"><u><strong>Chief Complaint:</strong></u>
+Fever and shortness of breath for 4 days.
+<u><strong>History of Present Illness:</strong></u>
+The patient is a 34-year-old female with a history of asthma and seasonal allergies who presented with a 4-day history of fever (maximum 101.8°F), productive cough with green sputum, and progressive shortness of breath.
+Symptoms began after recent exposure to a family member with an upper respiratory infection.
+She denied chest pain, hemoptysis, or recent travel.
+<u><strong>Physical Examination:</strong></u>
+General: Mild respiratory distress, fatigued appearance.
+Vitals:
+Temperature: 100.9°F Heart Rate: 110 bpm
+Blood Pressure: 126/78 mmHg Respiratory Rate: 22 bpm
+SpO2: 93% on room air
+Lungs: Diffuse wheezing and crackles in the right lower lung field.
+Other: No jugular venous distension, normal cardiovascular and neurological examinations.
+Pertinent Results
+Blood Tests (Performed 11/16/2024): Complete Blood Count (CBC):
+WBC: 13,800/mm³ (↑)
+Hemoglobin: 12.6 g/dL
+Platelets: 320,000/mm³ Comprehensive Metabolic Panel (CMP):
+Sodium: 137 mmol/L
+Potassium: 4.0 mmol/L
+Chloride: 102 mmol/L
+BUN: 16 mg/dL
+Creatinine: 0.9 mg/dL Inflammatory Markers:
+C-Reactive Protein (CRP): 7.2 mg/dL (↑)
+Microbiology:
+Sputum Culture: Positive for Streptococcus pneumoniae.
+<u><strong>Imaging:</strong></u>
+Chest X-ray (11/16/2024): Right lower lobe consolidation consistent with pneumonia.
+<u><strong>Brief Hospital Course:</strong></u>
+The patient was admitted for community-acquired pneumonia and mild hypoxemia.
+She was started on intravenous ceftriaxone and oral azithromycin.
+Supplemental oxygen via nasal cannula at 2 L/min was initiated to maintain SpO2 above 94%.
+Bronchodilator therapy with albuterol was used to address asthma exacerbation.
+Over the course of her hospitalization, the patient showed significant improvement in oxygenation and respiratory symptoms.
+She transitioned to oral antibiotics on hospital day 4 and no longer required supplemental oxygen at the time of discharge.
+She received education on proper asthma management, pneumonia recovery, and signs of worsening respiratory symptoms.
+<u><strong>Discharge Diagnoses:</strong></u>
+Community-acquired pneumonia (Streptococcus pneumoniae).
+Acute asthma exacerbation.
+Allergic rhinitis.</div>
+        </div>
+        <div id="side-bar">
+            <h2>Predicted Codes</h2>
+                <div id="thresholds">
+                    <label for="code-threshold">
+                        Code Prediction Confidence
+                        <span id="code-threshold-value" style="display: none;"></span>
+                    </label>
+                    <input type="range" id="code-threshold" min="0.4" max="1" step="0.01" value="0.7">
+
+                    <label for="evidence-threshold">
+                        Evidence Confidence (Attribution Threshold)
+                        <span id="evidence-threshold-value" style="display: none;"></span>
+                    </label>
+                    <input type="range" id="evidence-threshold" min="0.0" max="0.02" step="0.001" value="0.01">
+                </div>
+            <form>
+                <ul class="code-list" id="code-list">
+                    <!-- Code items will be dynamically populated -->
+                </ul>
+            </form>
+        </div>
+    </div>
+    <script>
+        var evidence_spans_data = {"J45.901": {"probability": 0.96769094, "formatted_code": "J45.901", "long_title": "Unspecified asthma with (acute) exacerbation", "code_type": "diagnosis", "code_version": "10", "evidence_spans": [{"span": [2244, 2269], "attribution": 0.1060403068549931}, {"span": [1756, 1775], "attribution": 0.09087453223764896}, {"span": [2271, 2288], "attribution": 0.00986062700394541}, {"span": [2187, 2241], "attribution": 0.007596547438879497}, {"span": [1698, 1735], "attribution": 0.0011444414703873917}, {"span": [1921, 1937], "attribution": 0.00037091050762683153}, {"span": [178, 195], "attribution": 0.00032684282632544637}, {"span": [1258, 1297], "attribution": 0.00017941324040293694}]}, "J13": {"probability": 0.89520144, "formatted_code": "J13", "long_title": "Pneumonia due to Streptococcus pneumoniae", "code_type": "diagnosis", "code_version": "10", "evidence_spans": [{"span": [2187, 2241], "attribution": 0.20876578975003213}, {"span": [1258, 1297], "attribution": 0.01060023601166904}, {"span": [1405, 1414], "attribution": 0.0019402519683353603}, {"span": [1492, 1520], "attribution": 0.0010639646061463282}, {"span": [1698, 1735], "attribution": 0.0002201440802309662}, {"span": [2244, 2269], "attribution": 0.00019811018137261271}, {"span": [1756, 1775], "attribution": 0.00018606668163556606}, {"span": [2166, 2185], "attribution": 0.00013433255662675947}]}, "R09.02": {"probability": 0.7488838, "formatted_code": "R09.02", "long_title": "Hypoxemia", "code_type": "diagnosis", "code_version": "10", "evidence_spans": [{"span": [1525, 1539], "attribution": 0.1655670254258439}, {"span": [556, 581], "attribution": 0.0007110088045010343}, {"span": [1258, 1297], "attribution": 0.00011842133244499564}]}};
+
+        var originalText = `<u><strong>Chief Complaint:</strong></u>
+Fever and shortness of breath for 4 days.
+<u><strong>History of Present Illness:</strong></u>
+The patient is a 34-year-old female with a history of asthma and seasonal allergies who presented with a 4-day history of fever (maximum 101.8°F), productive cough with green sputum, and progressive shortness of breath.
+Symptoms began after recent exposure to a family member with an upper respiratory infection.
+She denied chest pain, hemoptysis, or recent travel.
+<u><strong>Physical Examination:</strong></u>
+General: Mild respiratory distress, fatigued appearance.
+Vitals:
+Temperature: 100.9°F Heart Rate: 110 bpm
+Blood Pressure: 126/78 mmHg Respiratory Rate: 22 bpm
+SpO2: 93% on room air
+Lungs: Diffuse wheezing and crackles in the right lower lung field.
+Other: No jugular venous distension, normal cardiovascular and neurological examinations.
+Pertinent Results
+Blood Tests (Performed 11/16/2024): Complete Blood Count (CBC):
+WBC: 13,800/mm³ (↑)
+Hemoglobin: 12.6 g/dL
+Platelets: 320,000/mm³ Comprehensive Metabolic Panel (CMP):
+Sodium: 137 mmol/L
+Potassium: 4.0 mmol/L
+Chloride: 102 mmol/L
+BUN: 16 mg/dL
+Creatinine: 0.9 mg/dL Inflammatory Markers:
+C-Reactive Protein (CRP): 7.2 mg/dL (↑)
+Microbiology:
+Sputum Culture: Positive for Streptococcus pneumoniae.
+<u><strong>Imaging:</strong></u>
+Chest X-ray (11/16/2024): Right lower lobe consolidation consistent with pneumonia.
+<u><strong>Brief Hospital Course:</strong></u>
+The patient was admitted for community-acquired pneumonia and mild hypoxemia.
+She was started on intravenous ceftriaxone and oral azithromycin.
+Supplemental oxygen via nasal cannula at 2 L/min was initiated to maintain SpO2 above 94%.
+Bronchodilator therapy with albuterol was used to address asthma exacerbation.
+Over the course of her hospitalization, the patient showed significant improvement in oxygenation and respiratory symptoms.
+She transitioned to oral antibiotics on hospital day 4 and no longer required supplemental oxygen at the time of discharge.
+She received education on proper asthma management, pneumonia recovery, and signs of worsening respiratory symptoms.
+<u><strong>Discharge Diagnoses:</strong></u>
+Community-acquired pneumonia (Streptococcus pneumoniae).
+Acute asthma exacerbation.
+Allergic rhinitis.`;
+
+        var codeThresholdInput = document.getElementById('code-threshold');
+        var codeThresholdValue = document.getElementById('code-threshold-value');
+        var evidenceThresholdInput = document.getElementById('evidence-threshold');
+        var evidenceThresholdValue = document.getElementById('evidence-threshold-value');
+        var codeList = document.getElementById('code-list');
+        var selectedCode = null;
+
+        function updateThresholdValues() {
+            codeThresholdValue.textContent = codeThresholdInput.value;
+            evidenceThresholdValue.textContent = evidenceThresholdInput.value;
+        }
+
+        function filterCodes() {
+            var codeThreshold = parseFloat(codeThresholdInput.value);
+            var evidenceThreshold = parseFloat(evidenceThresholdInput.value);
+
+            // Keep track of the previously selected code
+            var prevSelectedCode = selectedCode;
+
+            // Clear code list
+            codeList.innerHTML = '';
+
+            var codes = Object.keys(evidence_spans_data);
+            codes.forEach(function(code) {
+                var data = evidence_spans_data[code];
+                if (data.probability >= codeThreshold) {
+                    // Filter evidence spans
+                    var filteredSpans = data.evidence_spans.filter(function(item) {
+                        return item.attribution >= evidenceThreshold;
+                    });
+                    if (filteredSpans.length === 0 && data.evidence_spans.length > 0) {
+                        // Include the highest attribution evidence span
+                        filteredSpans = [data.evidence_spans.reduce(function(prev, current) {
+                            return (prev.attribution > current.attribution) ? prev : current
+                        })];
+                    }
+                    if (filteredSpans.length > 0) {
+                        // Store filtered spans in data
+                        data.filtered_spans = filteredSpans;
+                        // Add code to list
+                        var listItem = document.createElement('li');
+                        var radioInput = document.createElement('input');
+                        radioInput.type = 'radio';
+                        radioInput.name = 'code';
+                        radioInput.value = code;
+                        radioInput.id = 'code_' + code;
+                        if (code === prevSelectedCode) {
+                            radioInput.checked = true;
+                        }
+                        radioInput.addEventListener('change', function() {
+                            if (this.checked) {
+                                onCodeSelected(this.value);
+                            }
+                        });
+                        var label = document.createElement('label');
+                        label.htmlFor = 'code_' + code;
+                        var codeTypeIcon = data.code_type === 'diagnosis' ? '' : (data.code_type === 'procedure' ? '️' : '');
+                        label.innerHTML = codeTypeIcon + ' <strong>' + data.formatted_code + '</strong>: ' + data.long_title;
+                        listItem.appendChild(radioInput);
+                        listItem.appendChild(label);
+                        codeList.appendChild(listItem);
+                    }
+                }
+            });
+
+            // If the previously selected code is still available, re-select it
+            if (prevSelectedCode && evidence_spans_data[prevSelectedCode] && evidence_spans_data[prevSelectedCode].filtered_spans) {
+                selectedCode = prevSelectedCode;
+                highlightSelectedCode();
+            } else {
+                // Reset text without highlights
+                selectedCode = null;
+                document.getElementById('text-content').innerHTML = originalText;
+            }
+        }
+
+        function highlightText(spans) {
+            var text = originalText;
+            var result = [];
+            var last_index = 0;
+            spans.sort(function(a, b) { return a[0] - b[0]; });
+            for (var i = 0; i < spans.length; i++) {
+                var start = spans[i][0];
+                var end = spans[i][1];
+                if (start > last_index) {
+                    result.push(text.substring(last_index, start));
+                }
+                result.push('<span class="highlight">' + text.substring(start, end) + '</span>');
+                last_index = end;
+            }
+            if (last_index < text.length) {
+                result.push(text.substring(last_index));
+            }
+            document.getElementById('text-content').innerHTML = result.join('');
+        }
+
+        function onCodeSelected(code) {
+            selectedCode = code;
+            highlightSelectedCode();
+        }
+
+        function highlightSelectedCode() {
+            var data = evidence_spans_data[selectedCode];
+            if (data && data.filtered_spans) {
+                var spans = data.filtered_spans.map(function(item) { return item.span; });
+                highlightText(spans);
+            } else {
+                // Reset text without highlights
+                document.getElementById('text-content').innerHTML = originalText;
+            }
+        }
+
+        codeThresholdInput.addEventListener('input', function() {
+            updateThresholdValues();
+            filterCodes();
+        });
+
+        evidenceThresholdInput.addEventListener('input', function() {
+            updateThresholdValues();
+            // Only need to update the evidence spans for the selected code
+            var evidenceThreshold = parseFloat(evidenceThresholdInput.value);
+            var codes = Object.keys(evidence_spans_data);
+
+            codes.forEach(function(code) {
+                var data = evidence_spans_data[code];
+                if (data.probability >= parseFloat(codeThresholdInput.value)) {
+                    var filteredSpans = data.evidence_spans.filter(function(item) {
+                        return item.attribution >= evidenceThreshold;
+                    });
+                    if (filteredSpans.length === 0 && data.evidence_spans.length > 0) {
+                        // Include the highest attribution evidence span
+                        filteredSpans = [data.evidence_spans.reduce(function(prev, current) {
+                            return (prev.attribution > current.attribution) ? prev : current
+                        })];
+                    }
+                    data.filtered_spans = filteredSpans;
+                }
+            });
+
+            // Update highlights if a code is selected
+            if (selectedCode) {
+                highlightSelectedCode();
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', function() {
+            updateThresholdValues();
+            filterCodes();
+            // Initialize with original text
+            document.getElementById('text-content').innerHTML = originalText;
+        });
+    </script>
+</body>
+</html>
