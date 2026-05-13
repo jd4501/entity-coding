@@ -2,6 +2,7 @@
 
 [![ACL 2025 Main](https://img.shields.io/badge/ACL%202025-Main-b31b1b.svg)](https://aclanthology.org/2025.acl-long.1489/)
 [![DOI](https://img.shields.io/badge/DOI-10.18653%2Fv1%2F2025.acl--long.1489-blue.svg)](https://doi.org/10.18653/v1/2025.acl-long.1489)
+[![Release](https://img.shields.io/github/v/release/jd4501/entity-coding.svg)](https://github.com/jd4501/entity-coding/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3115/)
 [![PyTorch 2.1](https://img.shields.io/badge/PyTorch-2.1-EE4C2C.svg)](https://pytorch.org/)
@@ -24,6 +25,8 @@ On MIMIC-IV this compresses discharge summaries to roughly 22% of the full-text 
 > - Rebuild the entity-only ICD training inputs and AC training corpus from their gated source datasets.
 
 > **Intended use.** This is a research artefact accompanying an ACL 2025 paper. The trained models inherit non-commercial terms from MIMIC and i2b2/n2c2 sources and are not cleared for clinical decision support, billing automation, or commercial deployment. See [docs/licenses.md](docs/licenses.md) for the per-source restrictions.
+
+> **Reproduction snapshot.** For paper-equivalent results, check out the [`v1.0.0` release](https://github.com/jd4501/entity-coding/releases/tag/v1.0.0). The `main` branch will continue to receive fixes and improvements after this release, and some future changes may shift observable outputs relative to the manuscript.
 
 The ICD coding model and evidence-extraction code under [`external/plm_ca/`](external/plm_ca/) are a vendored copy of [JoakimEdin/explainable-medical-coding](https://github.com/JoakimEdin/explainable-medical-coding) (commit [`8269cc7`](https://github.com/JoakimEdin/explainable-medical-coding/commit/8269cc7246b88fa5dd299191713ed7475b908537)) with additions for entity-aware training inputs and per-line attribution aggregation. Any work reusing that subdirectory must cite Edin et al. (2024); see [docs/licenses.md#citations](docs/licenses.md#citations).
 
