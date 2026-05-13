@@ -50,6 +50,11 @@ Thumbs.db
 /results/visualised_notes/
 /results/formatted_texts/
 
+# Evidence-comparison CSVs include text snippets derived from gated MIMIC notes;
+# the code_evidence notebook regenerates them locally during reproduction.
+/results/entityonly_code_evidence_compared.csv
+/results/fulltext_code_evidence_compared.csv
+
 # MDACE evidence reproduction scratch outputs; may include gated note text/evidence.
 /mdace_*_DConly.parquet
 /mdace_*_DConly.csv
