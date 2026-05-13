@@ -79,8 +79,9 @@ def check_conda_env():
         LOGGER.info("Using conda environment: %s", env)
         return
     LOGGER.warning(
-        "Not in 'entitycoding' conda environment (current: %s). "
-        "Continuing -- proceed at your own risk if required packages are missing.",
+        "Not in the canonical 'entitycoding' conda environment (current: %s). "
+        "Continuing -- this is fine if environment.yml is installed in the current env "
+        "(e.g. a renamed clone for testing).",
         env or "none",
     )
 

@@ -52,8 +52,11 @@ Thumbs.db
 
 # MDACE evidence reproduction scratch outputs; may include gated note text/evidence.
 /mdace_*_DConly.parquet
+/mdace_*_DConly.csv
 /inferred_notes_with_evidence_*
 /fft_inferred_*
+/entityonly/
+/fulltext/
 
 # ---------------------------------------------------------------------------
 # IAA Data

@@ -20,13 +20,13 @@ What this page covers: how to point the entity-based ICD coding pipeline at disc
 
 Start with the smallest dataset that matches what you want to run.
 
-| Goal                                                       | Required external data                                                                           | Where it goes                                                                            | Access                                            |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| Run the sample pipeline                                    | None (model downloads only)                                                                      | `data/models/`, `external/plm_ca/models/`                                                | None                                              |
-| Run inference on your own notes                            | None beyond your CSV/Parquet with `note_id,text`                                                 | Any local path you pass to `run_pipeline.py`                                             | None                                              |
-| Use or rebuild the 400-note annotation subset after PhysioNet publication | MIMIC-IV-Ext-EntityCoding PhysioNet release                                                      | `data/mimic-iv-ext-entitycoding/`                                                        | PhysioNet credentialed once published             |
-| Rebuild AC training data                                   | i2b2 2010, i2b2 2012, MIMIC-III `NOTEEVENTS.csv`, bvanaken labels, and MIMIC-IV-Ext-EntityCoding | `ac/sources/` and `data/mimic-iv-ext-entitycoding/` (see [`ac/README.md`](../ac/README.md)) | PhysioNet credentialed + DBMI/n2c2 (i2b2 portals) |
-| Train PLM-CA on MIMIC-IV or reproduce MDACE evidence flows | MIMIC-IV, MIMIC-IV-Note, MIMIC-III, and MDACE annotations                                        | `external/plm_ca/data/raw/`                                                              | PhysioNet credentialed (MDACE annotations public) |
+| Goal                                                                      | Required external data                                                                           | Where it goes                                                                               | Access                                            |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Run the sample pipeline                                                   | None (model downloads only)                                                                      | `data/models/`, `external/plm_ca/models/`                                                   | None                                              |
+| Run inference on your own notes                                           | None beyond your CSV/Parquet with `note_id,text`                                                 | Any local path you pass to `run_pipeline.py`                                                | None                                              |
+| Use or rebuild the 400-note annotation subset after PhysioNet publication | MIMIC-IV-Ext-EntityCoding PhysioNet release                                                      | `data/mimic-iv-ext-entitycoding/`                                                           | PhysioNet credentialed once published             |
+| Rebuild AC training data                                                  | i2b2 2010, i2b2 2012, MIMIC-III `NOTEEVENTS.csv`, bvanaken labels, and MIMIC-IV-Ext-EntityCoding | `ac/sources/` and `data/mimic-iv-ext-entitycoding/` (see [`ac/README.md`](../ac/README.md)) | PhysioNet credentialed + DBMI/n2c2 (i2b2 portals) |
+| Train PLM-CA on MIMIC-IV or reproduce MDACE evidence flows                | MIMIC-IV, MIMIC-IV-Note, MIMIC-III, and MDACE annotations                                        | `external/plm_ca/data/raw/`                                                                 | PhysioNet credentialed (MDACE annotations public) |
 
 Access requirements differ by source. MIMIC-III, MIMIC-IV, MIMIC-IV-Note, and the MIMIC-IV-Ext-EntityCoding release once published require PhysioNet credentialed access; i2b2/n2c2 challenges require DBMI portal registration; bvanaken assertion labels and MDACE annotations are public. See [Licenses](licenses.md) for the per-source terms and [`data/README.md`](../data/README.md) for the full directory schema.
 
@@ -37,6 +37,20 @@ wget -r -N -c -np --user <physionet-username> --ask-password https://physionet.o
 wget -r -N -c -np --user <physionet-username> --ask-password https://physionet.org/files/mimic-iv-note/2.2/
 wget -r -N -c -np --user <physionet-username> --ask-password https://physionet.org/files/mimiciii/1.4/
 ```
+
+This mirrors the three full releases (tens of gigabytes). If you only need to reproduce the evidence flows in [Code evidence reproduction](evidence.md), the prep scripts read just six specific files, totalling around 2.5 GB compressed; you can target them directly to save time and bandwidth:
+
+```bash
+wget -nc --user <physionet-username> --ask-password -x \
+    https://physionet.org/files/mimiciii/1.4/NOTEEVENTS.csv.gz \
+    https://physionet.org/files/mimiciii/1.4/DIAGNOSES_ICD.csv.gz \
+    https://physionet.org/files/mimiciii/1.4/PROCEDURES_ICD.csv.gz \
+    https://physionet.org/files/mimiciv/2.2/hosp/diagnoses_icd.csv.gz \
+    https://physionet.org/files/mimiciv/2.2/hosp/procedures_icd.csv.gz \
+    https://physionet.org/files/mimic-iv-note/2.2/note/discharge.csv.gz
+```
+
+`-x` preserves the `physionet.org/files/...` directory hierarchy the prep scripts expect. Add `--tries=20 --waitretry=10 --timeout=60` if the 1 GB+ files (`NOTEEVENTS.csv.gz`, `discharge.csv.gz`) intermittently fail their TLS handshake on flaky networks. Windows PowerShell users: see [`docs/troubleshooting.md`](troubleshooting.md#windows-wget-powershell-alias) before running.
 
 Keep these inputs gzip-compressed (`*.csv.gz`); the PLM-CA `make` targets read them directly. The AC pipeline is the one exception, expecting a decompressed `ac/sources/mimic_iii/NOTEEVENTS.csv` (see [`ac/README.md`](../ac/README.md)).
 
@@ -85,7 +99,7 @@ python run_pipeline.py path/to/your_notes.csv [output_prefix] \
 
 Key flags:
 
-- `--max_workers` (default 2 here, 5 in the standalone NER script). Each worker loads its own NER + AC model copy; 5-6 workers fit on ~12 GB of VRAM.
+- `--max_workers` (default 2 here, 5 in the standalone NER script). Each worker loads its own NER + AC model copy; 3-4 workers fit on ~12 GB of VRAM.
 - `--visualize-entities` writes per-note HTML with detected entities and assertion statuses to `results/ner/docs_with_ner/` (example below; synthetic note).
 
   ![NER and assertion-classification HTML output](../img/NER_example_synthetic.jpg)

@@ -16,6 +16,10 @@ What this page covers: common stumbles when running the pipeline, plus the platf
 
 For deeper data-prep issues, [`ac/README.md`](../ac/README.md) has a dedicated trail for the AC pipeline.
 
+## Windows: `wget` PowerShell alias
+
+The PhysioNet download recipes in [`docs/inference.md`](inference.md#what-data-do-i-need) assume GNU `wget`. PowerShell aliases the bare name `wget` to `Invoke-WebRequest`, which does not accept the GNU flags (`--user`, `-r`, `-np`, `-c`, etc.) and fails with `A parameter cannot be found that matches parameter name 'nc'`. Either invoke the GNU binary explicitly as `wget.exe`, or run the recipes from Git Bash where `wget` resolves to the chocolatey-installed GNU binary directly. Same caution applies to the multi-line forms: bash uses `\` for line continuation, PowerShell uses a trailing backtick `` ` ``.
+
 ## Windows: OpenMP duplicate-init warning
 
 When launching PLM-CA training you may see `OMP: Error #15: Initializing libiomp5md.dll, but found libiomp5md.dll already initialized`. The conda env ships multiple OpenMP runtimes side-by-side (Intel via `intel-openmp`/MKL, plus `llvm-openmp` and `libgomp` pulled in by cross-channel deps); both initialisations resolve to the same DLL on this env, so it is a spurious detection. In PowerShell, set `$env:KMP_DUPLICATE_LIB_OK="TRUE"` before the command. In POSIX shells, prepend `KMP_DUPLICATE_LIB_OK=TRUE` to the command or export it first.

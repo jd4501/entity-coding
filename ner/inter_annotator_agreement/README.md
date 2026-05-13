@@ -14,10 +14,8 @@ Reproduces the agreement numbers reported in the paper:
 | `annotations/author1.json` | no (MIMIC-derived) | Annotations by author 1 (the primary annotator): 8 docs, 1486 entities         |
 | `annotations/author2.json` | no (MIMIC-derived) | Annotations by author 2: 8 docs, 1435 entities                                 |
 
-The text and JSON annotation files contain MIMIC-IV-Note-derived material and
-are therefore subject to PhysioNet credentialed-access terms. They are not
-committed here. Place them into
-`annotations/` before running `compute_iaa.py`.
+The IAA inputs are project-internal and not committed to this repository.
+Place them into `annotations/` if you hold them, then run `compute_iaa.py`.
 
 Each annotation JSON is a list of 8 documents; each document is a list of
 entity objects with `start`, `end`, and `labels` fields, where offsets index into

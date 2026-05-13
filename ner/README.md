@@ -78,10 +78,11 @@ local-only stage areas under `data/`. Each path below is described in
 - **`data/sample_data/sample_notes.csv`** is the small synthetic note set used
   by the smoke-test command in the top-level README.
 
-The MIMIC-IV-Ext-EntityCoding release files, MIMIC-IV-Note staging files, IAA
-annotation files, and trained model checkpoints are all subject to PhysioNet
-credentialed-access terms or to the project's own credentialed distribution
-channels. None of them are committed to this repository.
+The MIMIC-IV-Ext-EntityCoding release files, MIMIC-IV-Note staging files,
+and trained model checkpoints are subject to PhysioNet credentialed-access
+terms or distributed through the project's own channel (`data_download.py`).
+The IAA annotation files are project-internal. None of these are committed
+to this repository.
 
 ## Script Notes
 
