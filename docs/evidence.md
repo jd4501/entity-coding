@@ -73,7 +73,7 @@ The scoring split is important: `infer_with_explanations_fulltext.py` does not p
    python infer_with_explanations_fulltext.py \
        ../../mdace_test_DConly ../../fft_inferred_notes_with_evidence_mdace_test_DConly 1e-6
    ```
-3. **Tune the attribution threshold on val.** In the Stage 2 setup cell (the first code cell under **Stage 2 — Threshold Tuning**), comment out the three lines under `# Entities` and uncomment the three under `# Full Text`, set `model_name = "fulltext"`, and change `PROBABILITY_THRESHOLD` to `0.4141414165496826`. Then run that cell to sweep for the attribution value that maximises partial-match F2 on val. The manuscript run selected `0.0013877551020408164`.
+3. **Tune the attribution threshold on val.** In the Stage 2 setup cell (the first code cell under the **Stage 2: Threshold Tuning** heading), comment out the three lines under `# Entities` and uncomment the three under `# Full Text`, set `model_name = "fulltext"`, and change `PROBABILITY_THRESHOLD` to `0.4141414165496826`. Then run that cell to sweep for the attribution value that maximises partial-match F2 on val. The manuscript run selected `0.0013877551020408164`.
 4. **Merge per-word outputs into contiguous spans** for train and test, using the val-derived threshold:
    ```bash
    python merge_contiguous_spans.py \
@@ -89,7 +89,7 @@ The scoring split is important: `infer_with_explanations_fulltext.py` does not p
 
 ## Expected outputs at the repo root
 
-Running both arms end-to-end leaves the following artefacts in the notebook's working directory — the repo root, if you launched Jupyter from there as Step 1 assumes (some Jupyter setups default cwd to the notebook's own folder, in which case the files land under `code_evidence/` instead). All are listed in `.gitignore` since they include text derived from gated MIMIC-III notes:
+Running both arms end-to-end leaves the following artefacts in the notebook's working directory (the repo root, if you launched Jupyter from there as Step 1 assumes; some Jupyter setups default cwd to the notebook's own folder, in which case the files land under `code_evidence/` instead). All are listed in `.gitignore` since they include text derived from gated MIMIC-III notes:
 
 ```
 mdace_{train,val,test}_DConly.parquet            # Stage 1, both arms
