@@ -1,194 +1,173 @@
 # Less is More: Explainable and Efficient ICD Code Prediction with Clinical Entities
 
-## Paper: https://aclanthology.org/2025.acl-long.1489/
+[![ACL 2025 Main](https://img.shields.io/badge/ACL%202025-Main-b31b1b.svg)](https://aclanthology.org/2025.acl-long.1489/)
+[![DOI](https://img.shields.io/badge/DOI-10.18653%2Fv1%2F2025.acl--long.1489-blue.svg)](https://doi.org/10.18653/v1/2025.acl-long.1489)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3115/)
+[![PyTorch 2.1](https://img.shields.io/badge/PyTorch-2.1-EE4C2C.svg)](https://pytorch.org/)
+[![Dataset: PhysioNet (in review)](https://img.shields.io/badge/dataset-PhysioNet%20%28in%20review%29-lightgrey.svg)](data/README.md)
 
-This repository contains the code and resources for the paper **"Less is More: Explainable and Efficient ICD Code Prediction with Clinical Entities"**. The work incorporates Named Entity Recognition (NER) and Assertion Classification (AC) to detect medical mentions releavnt for clinical coding, using them in downstream code prediction and evidence extraction.
+Paper: <https://aclanthology.org/2025.acl-long.1489/>
+
+![Pipeline overview](img/workflow_diagram.png)
+
+_Pipeline schematic (Figure 1 of the manuscript): NER and assertion classification distil a discharge summary into an entity-only document; PLM-CA predicts ICD-10 codes; AttInGrad surfaces in-text evidence. The example shown is synthetic._
+
+This repository accompanies the ACL 2025 paper of the same name. The pipeline takes raw clinical notes through Named Entity Recognition (NER) and Assertion Classification (AC), consolidates the surviving entities into a short "entity-only" document, and runs PLM-CA for ICD-10-CM/PCS code prediction with attribution-based evidence.
+
+On MIMIC-IV this compresses discharge summaries to roughly 22% of the full-text length while staying within about one F1 point of the full-text baseline's coding performance. Additionally, the surviving entity spans serve as natural, clinically coherent code evidence.
+
+> **What you can do with this repo**
+>
+> - Run research inference for discharge-style clinical notes you are permitted to process, producing ICD-10-CM/PCS code predictions with in-text evidence.
+> - Recompute selected manuscript artefacts from shipped outputs, with remaining analyses requiring credentialed data, retraining, or manual review as documented in `docs/`.
+> - Rebuild the entity-only ICD training inputs and AC training corpus from their gated source datasets.
+
+> **Intended use.** This is a research artefact accompanying an ACL 2025 paper. The trained models inherit non-commercial terms from MIMIC and i2b2/n2c2 sources and are not cleared for clinical decision support, billing automation, or commercial deployment. See [docs/licenses.md](docs/licenses.md) for the per-source restrictions.
+
+The ICD coding model and evidence-extraction code under [`external/plm_ca/`](external/plm_ca/) are a vendored copy of [JoakimEdin/explainable-medical-coding](https://github.com/JoakimEdin/explainable-medical-coding) (commit [`8269cc7`](https://github.com/JoakimEdin/explainable-medical-coding/commit/8269cc7246b88fa5dd299191713ed7475b908537)) with additions for entity-aware training inputs and per-line attribution aggregation. Any work reusing that subdirectory must cite Edin et al. (2024); see [docs/licenses.md#citations](docs/licenses.md#citations).
 
 ---
 
-## Overview
+## Quick start
 
-This repository builds upon and modifies the [PLM-CA repository](https://github.com/JoakimEdin/explainable-medical-coding), with paper paper: [An Unsupervised Approach to Achieve Supervised-Level Explainability in Healthcare Records](https://aclanthology.org/2024.emnlp-main.280/). It adds:
+Four commands take a fresh clone to rendered ICD predictions on three synthetic discharge summaries.
 
-- **NER & AC Models**: Identifies clinical entities (e.g., disorders, procedures) and their assertion status (e.g., present, absent/negated)
-- **Entity-based ICD Code Prediction**: Instead of feeding the entire note text into the model, we consolidate the detected entities into a structured input.
-- **Evidence Extraction**: Provides evidence spans (entities) that support each predicted ICD code, improving transparency and interpretability of the coding process.
+```bash
+# 1. Create and activate the conda environment.
+mamba env create -f environment.yml && conda activate entitycoding
 
-Note: It uses this [PLM-CA commit](https://github.com/JoakimEdin/explainable-medical-coding/commit/8269cc7246b88fa5dd299191713ed7475b908537). 
+# 2. Download the NER, AC, entity-only ICD, and tokenizer checkpoints.
+python data_download.py --models ner,ac,entity-only --cleanup
+
+# 3. Fetch the base RoBERTa-PM that the entity-only ICD model loads on top of.
+( cd external/plm_ca && make download_roberta )
+
+# 4. Run the full pipeline on the bundled synthetic notes.
+python run_pipeline.py data/sample_data/sample_notes.csv \
+    --visualize-entities --visualize-evidence
+```
+
+Open `results/visualised_notes/synthetic-1.html` to see ICD codes with their entity evidence highlighted:
+
+![Visualised ICD predictions for synthetic-1](img/synthetic_note_coded.JPG)
+
+_Sample render of `results/visualised_notes/synthetic-1.html`. The right panel lists predicted ICD codes; selecting one highlights the supporting entity evidence in the note body. The note shown is one of the bundled GPT-4o synthetic discharge summaries, so no real patient data appears._
 
 ---
 
-## Installation
+## At a glance
 
-**1. Clone this repository**
+The pipeline distils a raw discharge summary into a short entity-only document, then runs PLM-CA on that consolidated input. On MIMIC-IV the consolidation cuts both the input length the coding model sees and the time required to train it:
 
-**2. Create Conda Environment**  
-  Navigate to this repository’s root folder and run:
+| Metric                         | Full-text | Entity-only |
+| ------------------------------ | --------- | ----------- |
+| Median document length (words) | 1,627     | 353         |
+| Training time (single L4 GPU)  | 28.8 h    | 10.9 h      |
 
-  ```
-  # Using Mamba (recommended for faster installation):
-  mamba env create -f environment.yml
-  
-  # Or using Conda:
-  conda env create -f environment.yml
-  
-  # Activate the environment:
-  conda activate entitycoding
-  ```
+ICD coding F1, MAP, and the full Table 7 metric suite are in the [paper](https://aclanthology.org/2025.acl-long.1489/); see [docs/reproduce.md](docs/reproduce.md) for the recompute commands.
 
-**Note:** The environment.yml includes dependencies from the PLM-CA module, and the new NER/AC components. You can safely ignore the installation step from PLM-CA (`make setup`).
+---
 
-**3. Obtain PLM-CA Resources**  
-  - Navigate to the PLM-CA module (`cd external/plm-ca`)
-  - Ensure to activate the conda environment (`conda activate entitycoding`)
-  - Follow their setup instructions to download MIMIC-IV, MIMIC-IV-Note and MIMIC-III (see `external/plm_ca/README.md`, Section `Setup`) to `external/plm_ca/data/raw`. 
-  - You do _not_ need to run `make_prepare_everything` (since the PLM-CA trained coding models are not needed for this work). and you do _not_ need to make another environment.
-  - Instead, run the Makefiles up to (and including) `make download_roberta` to obtain the MIMIC data and RoBERTa encoder (you can choose all or one of `make mimiciii`, `make mimiciv`, `make mdace`). 
+## Repository tour
 
-**4. Download NER/AC/Coding Models** 
+| Path                                                                 | What's there                                                                                                                                                | See                                                                                    |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [`run_pipeline.py`](run_pipeline.py)                                 | Top-level orchestrator: NER + AC, then ICD coding, with optional HTML visualisations.                                                                       | [docs/inference.md](docs/inference.md)                                                 |
+| [`data_download.py`](data_download.py)                               | Fetches all model checkpoints listed in [`config/download_config.yaml`](config/download_config.yaml).                                                       | [docs/inference.md#models](docs/inference.md#models)                                   |
+| [`ner/`](ner/)                                                       | Entity extraction, assertion filtering, NER training, and dataset-prep helpers.                                                                             | [`ner/README.md`](ner/README.md)                                                       |
+| [`ac/`](ac/)                                                         | Assertion-classification training pipeline (i2b2 2010/2012, MIMIC-III bvanaken, MIMIC-IV-Ext-EntityCoding).                                                 | [`ac/README.md`](ac/README.md)                                                         |
+| [`code_evidence/`](code_evidence/)                                   | MDACE evidence evaluation notebook plus per-note HTML visualiser.                                                                                           | [docs/evidence.md](docs/evidence.md)                                                   |
+| [`external/plm_ca/`](external/plm_ca/)                               | Vendored PLM-CA fork: ICD coding training, inference, and AttInGrad-based attributions.                                                                     | [`external/plm_ca/README.md`](external/plm_ca/README.md)                               |
+| [`data/`](data/)                                                     | Default-deny staging area for clinical data plus committed sample notes and ICD code descriptions.                                                          | [`data/README.md`](data/README.md)                                                     |
+| [`data/sample_data/`](data/sample_data/)                             | Three GPT-4o synthetic discharge summaries used by the pipeline test above.                                                                                 | [`data/sample_data/README.md`](data/sample_data/README.md)                             |
+| [`data/mimic-iv-ext-entitycoding/`](data/mimic-iv-ext-entitycoding/) | Local landing directory for the 400-note PhysioNet annotation release once published and credentialed.                                                      | [`data/mimic-iv-ext-entitycoding/NOTE.md`](data/mimic-iv-ext-entitycoding/NOTE.md)     |
+| [`results/sample_results/`](results/sample_results/)                 | Committed reference outputs of the sample pipeline run.                                                                                                     | [docs/inference.md#reference-run](docs/inference.md#reference-run)                     |
+| `results/*.csv` and `results/*.txt`                                  | Tracked supplementary artefacts referenced by the manuscript (per-code metrics for code-level inspection, evidence comparisons, paper permutation results). | [docs/reproduce.md](docs/reproduce.md)                                                 |
+| [`config/download_config.yaml`](config/download_config.yaml)         | Model URLs, sizes, and target paths for `data_download.py`.                                                                                                 | [docs/inference.md#models](docs/inference.md#models)                                   |
 
-This repository requires several pre-trained models that are hosted externally due to GitHub file size limits. Navigate back to the root directory, then use the automated download script to fetch all required models:
+---
 
-**Activate the conda environment first:**
+## Install
+
+A single conda environment, `entitycoding`, covers every script in the repo (top-level helpers, `ner/`, `ac/`, `code_evidence/`, and the vendored `external/plm_ca/`). Conda's classic solver may fail on this environment; mamba or conda with libmamba is recommended.
+
 ```bash
+# Recommended:
+mamba env create -f environment.yml
+
+# Or with conda + libmamba:
+conda env create -f environment.yml --solver libmamba
+
 conda activate entitycoding
 ```
 
-**Download with cleanup (removes archive files after extraction):**
-```bash
-python data_download.py --cleanup
+Python 3.11.5, torch 2.1.1, transformers 4.38.1. For platform gotchas (Windows OpenMP, wandb prompts, the PLM-CA fork's Poetry path) see [docs/troubleshooting.md](docs/troubleshooting.md).
+
+---
+
+## Documentation
+
+Deeper material lives under [`docs/`](docs/). If you just want to:
+
+- **Reproduce a specific paper artefact** (table, figure, ablation): [docs/reproduce.md](docs/reproduce.md)
+- **Run the pipeline on your own discharge notes**: [docs/inference.md](docs/inference.md)
+- **Retrain the entity-only PLM-CA from MIMIC-IV inputs**: [docs/training.md](docs/training.md)
+- **Reproduce MDACE evidence overlap** (Tables 8/12, Appendix B): [docs/evidence.md](docs/evidence.md)
+- **Understand the per-source licence terms**: [docs/licenses.md](docs/licenses.md)
+- **Hit a platform-specific snag**: [docs/troubleshooting.md](docs/troubleshooting.md)
+
+### Per-area READMEs
+
+- [`data/README.md`](data/README.md): staging-area map for clinical inputs and model downloads.
+- [`ner/README.md`](ner/README.md): entity extraction and NER training internals.
+- [`ac/README.md`](ac/README.md): assertion classification training pipeline.
+- [`external/plm_ca/README.md`](external/plm_ca/README.md): vendored PLM-CA fork (upstream README + fork additions).
+
+---
+
+## Licenses
+
+This repository assembles code, model weights, and references to gated clinical data; different parts carry different terms. The code is [MIT](LICENSE). The trained model weights inherit non-commercial restrictions from their MIMIC and i2b2/n2c2 training data. Source clinical data (MIMIC-III, MIMIC-IV, MIMIC-IV-Note, and the MIMIC-IV-Ext-EntityCoding release once published) requires PhysioNet credentialed access; i2b2/n2c2 requires DBMI registration; bvanaken assertion labels and MDACE annotations are public.
+
+| Artefact class              | License / access                              | Where to look                                                                                                             |
+| --------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Repository code             | MIT                                           | [LICENSE](LICENSE)                                                                                                        |
+| Trained model weights       | Non-commercial (inherited from training data) | [docs/licenses.md](docs/licenses.md#trained-model-weights-non-commercial-only)                                            |
+| MIMIC-III / MIMIC-IV inputs | PhysioNet Credentialed Health Data License    | [docs/licenses.md](docs/licenses.md#source-clinical-data-physionet-credentialed-access), [data/README.md](data/README.md) |
+| MDACE annotations           | CC BY 4.0 (note text still under PhysioNet)   | [docs/licenses.md](docs/licenses.md#mdace-annotations)                                                                    |
+
+See [docs/licenses.md](docs/licenses.md) for the full per-source breakdown and the secondary citations that accompany the main paper.
+
+---
+
+## How to cite
+
+If you use this code, the PhysioNet annotation dataset once published, or the distributed model weights, please cite:
+
+```bibtex
+@inproceedings{douglas-etal-2025-less,
+    title = "Less is More: Explainable and Efficient {ICD} Code Prediction with Clinical Entities",
+    author = "Douglas, James C.  and
+      Gan, Yidong  and
+      Hachey, Ben  and
+      Kummerfeld, Jonathan K.",
+    editor = "Che, Wanxiang  and
+      Nabende, Joyce  and
+      Shutova, Ekaterina  and
+      Pilehvar, Mohammad Taher",
+    booktitle = "Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)",
+    month = jul,
+    year = "2025",
+    address = "Vienna, Austria",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2025.acl-long.1489/",
+    doi = "10.18653/v1/2025.acl-long.1489",
+    pages = "30835--30847",
+    ISBN = "979-8-89176-251-0"
+}
 ```
 
-Note: The download paths are stored in `config/download_config.yaml`. Commenting out a given path will skip downloading it. 
+For the planned PhysioNet annotation release, the Edin et al. PLM-CA paper, the bvanaken assertion labels, the Lewis et al. RoBERTa-PM encoder, and the Cheng et al. MDACE annotations, see [docs/licenses.md#citations](docs/licenses.md#citations).
 
-### What Gets Downloaded
-
-The script automatically downloads and extracts the following models:
-
-- **NER Model** (433MB) → `data/models/ner_model/`
-  - Used for Named Entity Recognition in clinical notes
-- **AC Model** (434MB) → `data/models/ac_model/`  
-  - Used for Assertion Classification (present/absent/uncertain etc.)
-- **RoBERTa-base-PM-M3-Voc-distill-align** (~470MB) → `data/models/RoBERTa-base-PM-M3-Voc-distill-align-hf/`
-  - Pre-trained biomedical language model
-- **Entity-only ICD-10 Coding Model** (~1.3GB) → `external/plm_ca/models/entityonly/`
-  - ICD code prediction model trained on entity-based input
-- **Full-text ICD-10 Coding Model** (~1.3GB) → `external/plm_ca/models/fulltext/`
-  - ICD code prediction model trained on full text notes
-- **Tokenizer with Entity Classes** → `external/plm_ca/models/tokenizer_latest/`
-  - Custom tokenizer that handles the NER entity tokens (the full-text model does not need this)
-
-**Note:** The full-text ICD-10 coding model is currently commented out in the download config but can be enabled if desired.
-
-## Usage
-
-#### 1. Prepare Input Documents
-
-You will need a Parquet or CSV file with two columns:
-
-- **note_id**: A unique identifier for each clinical note
-- **text**: The raw text of the clinical note
-
-An example file is provided for testing: `data/sample_data/sample_notes.csv` (GPT-4o generated clinical notes). The MIMIC note downloads from the PLM-CA module already contain these columns and are compatible. However, they are downloaded in their full text form. See Section `Generate Entity Documents` for details on how to create the entity-only documents from the MIMIC-III/IV dataset. 
-
-### End-to-end NER, AC and ICD coding
-
-```bash
-# Activate environment 
-conda activate entitycoding
-
-# Run complete pipeline with default settings
-python run_pipeline.py data/sample_data/sample_notes.csv
-
-# Or customize the output file path/name, number of parallel workers for NER/AC and toggle HTML visualization of codes and evidence
-python run_pipeline.py data/sample_data/sample_notes.csv [output_path] --max_workers 4 --visualize
-```
-
-**What the pipeline script does:**
-1. **Entity Extraction**: Identifies and filters clinical entities (disorders, procedures, etc.) using NER and AC models. 
-2. **ICD Coding**: Predicts ICD-10 codes based on extracted entities with evidence attribution
-3. **Output Generation**: Creates both CSV and Parquet files with ICD code results and evidence. 
-4. **Visualization (OPTIONAL)**: Saves HTML outputs showing a note with predicted codes and evidence spans. Requires the --visualize flag. 
-
-### Manual Steps
-
-If you prefer to run each step individually:
-
-#### 1. Entity Extraction
-
-**Activate the conda environment first:**
-```bash
-conda activate entitycoding
-```
-
-**Run entity extraction:**
-```bash
-python ner/extract_entities.py data/sample_data/sample_notes.csv --output_file results/ner/sample_notes_entities.csv --max_workers 4
-```
-
-**Important Notes:**
-- Adjust `--max_workers` based on your GPU memory, for parallel processing of notes. 5-6 works with ~12GB VRAM, as a guide. Each worker process loads its own copy of the NER and AC models.
-- Add `--save-formatted-texts` if you plan to visualise the codes+evidence later (saves the formatted documents to which NER/AC is applied, with pre-processing applied)
-- Add `--save_ner_docs` if you'd like to save the docs with NER/AC spans highlighted (HTML format), via `displacy`. 
-- The script is designed to detect note_id's that have already been processed. This is helpful if running on large document sets, but means you'll need to remove already processed files if you'd like to re-run with one of the flags above applied. 
-
-#### 2. ICD Coding Inference
-
-With the extracted entities (.csv file from the previous step), you can run ICD coding inference with evidence extraction:
-
-**Navigate to PLM-CA module and run inference:**
-```bash
-cd external/plm_ca
-python infer_with_explanations.py ../../results/ner/sample_notes_entities.csv ../../results/coded/sample_notes_coded
-```
-Argument 1 is the input file (only .csv accepted). Argument 2 is the output file (including .csv or .parquet at the end is optional - both will be saved)
-
-Note: This script currently only accepts .csv files as input. It does, however, save outputs to both .csv and .parquet (regardless of whether you provide .csv or .parquet in the output extension). 
-
-**Output files:**
-- `results/coded/sample_notes_coded.csv` - Main results with ICD codes, probabilities, and evidence
-- `results/coded/sample_notes_coded.parquet` - Same data in Parquet format
-
-## PLM-CA Training
-
-If you wish to train or fine-tune models within the PLM-CA framework using entity-based notes:
-
-### Generate Entity-only Documents
-
-In the PLM-CA repository, after running `make mimiciv`, your processed train/val/test data will be in `explainable_medical_coding/data/processed/mimiciv_icd10`. You'll need to run NER/AC on each of the train/test/val files with `extract_entities.py`.
-
-Next, consolidate all entities for each note into a single document and replace the original full text document. Running `create_train_input.py` on each pair of files (post-NER and AC + the original MIMIC file) will create the entity-only documents for training. Example:
-
-`python ner/create_train_input.py --entities results/ner/mimic-iv-train.csv --mimic_file external/plm-ca/data/processed/mimiciv_icd10/train.parquet --output results/train.parquet`
-
-### (Optional) Ablation Testing
-
-`--remove_tokens` removes special tokens indicating entity types.
-`--replace_tokens` replaces special tokens with plain text.
-`--shuffle` shuffles entities and headings in the note.
-
-### Run Training
-
-Once the train/val/test files have been processed, navigate to the PLM-CA repo `cd external/plm-ca` and run training: `poetry run python train_plm_entities.py experiment=mdace_icd9_code/plm_icd gpu=0 dataloader.max_batch_size=1 data=mimiciv_icd10`.
-
-IMPORTANT: The HuggingFace integration can lead to previous versions of the dataset being cached for further use. If this cached data is not removed, you may inadvertenly train the model on the wrong version of the data. This cache path varies by OS, but should resemble `.cache/huggingface/datasets/mdace_inpatient_icd10`. These folders can be safely deleted. 
-
-## Code Evidence Evaluation
-
-To evaluate code evidence (using [MDACE](https://github.com/3mcloud/MDACE)):
-
-### Prepare MDACE Data
-
-If you ran `make mdace` in the PLM-CA repo, the processed MDACE files will be located in `external/plm-ca/data/processed/mdace_icd10_inpatient`.
-
-### NER & AC on MDACE Notes
-
-Run the same `extract_entities.py` steps on the MDACE train/val/test notes to obtain entity-level outputs.
-
-### Evidence Extraction
-
-Run `infer_with_explanations.py` to get code predictions and evidence for each note. The arguments are the input file, and output filename.
-
-### Threshold Tuning & Evaluation
-
-In the `code_evidence_eval.ipynb` notebook (found in `code_evidence/`), set the file paths for the predicted outcomes from the previous script. Then run the cells to generate an evidence evaluation report that includes metrics on how accurately the model’s entity-based evidence aligns with reference data.
+GitHub also exposes a "Cite this repository" button driven by [CITATION.cff](CITATION.cff).

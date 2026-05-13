@@ -1,0 +1,35 @@
+Time ~6 hours
+Permutations: 1,000
+
+=== Actual Metrics ===
+Model A Metrics:
+f1_micro: 0.5882
+f1_macro: 0.2476
+precision@8: 0.7027
+precision@15: 0.5533
+exact_match_ratio: 0.0045
+map: 0.6232
+
+Model B Metrics:
+f1_micro: 0.5956
+f1_macro: 0.2604
+precision@8: 0.7092
+precision@15: 0.5607
+exact_match_ratio: 0.0044
+map: 0.6340
+
+=== Observed Metric Differences (A - B) ===
+f1_micro: -0.0074
+f1_macro: -0.0128
+precision@8: -0.0065
+precision@15: -0.0074
+exact_match_ratio: 0.0002
+map: -0.0108
+
+=== Permutation Test P-Values ===
+f1_micro: p-value = 0.0010 (Significant)
+f1_macro: p-value = 0.0010 (Significant)
+precision@8: p-value = 0.0010 (Significant)
+precision@15: p-value = 0.0010 (Significant)
+exact_match_ratio: p-value = 0.7872 (Not Significant)
+map: p-value = 0.0010 (Significant)

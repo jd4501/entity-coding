@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - data: mimiciv_icd10cm
+  - data: mimiciv_icd10
   - dataloader: defaults
   - model: plm_icd
   - trainer: defaults

@@ -1,1 +1,71 @@
-/data/models
+# ---------------------------------------------------------------------------
+# Python noise
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# ---------------------------------------------------------------------------
+# Editor / OS noise
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ---------------------------------------------------------------------------
+# Trained models
+# ---------------------------------------------------------------------------
+/data/models/
+
+# Download archives left by data_download.py when --cleanup is not used.
+/downloads/
+
+# ---------------------------------------------------------------------------
+# Data - default-deny
+# ---------------------------------------------------------------------------
+/data/*
+!/data/README.md
+!/data/mimic-iv-ext-entitycoding/
+/data/mimic-iv-ext-entitycoding/*
+!/data/mimic-iv-ext-entitycoding/NOTE.md
+!/data/mimic-iv-note/
+/data/mimic-iv-note/*
+!/data/mimic-iv-note/README.md
+!/data/sample_data/
+!/data/code_descriptions/
+
+# ---------------------------------------------------------------------------
+# AC dataset 
+# ---------------------------------------------------------------------------
+/ac/data/
+/ac/sources/
+
+# ---------------------------------------------------------------------------
+# Outputs from local pipeline runs.
+# ---------------------------------------------------------------------------
+/results/ner/
+/results/coded/
+/results/visualised_notes/
+/results/formatted_texts/
+
+# MDACE evidence reproduction scratch outputs; may include gated note text/evidence.
+/mdace_*_DConly.parquet
+/inferred_notes_with_evidence_*
+/fft_inferred_*
+
+# ---------------------------------------------------------------------------
+# IAA Data
+# ---------------------------------------------------------------------------
+/ner/inter_annotator_agreement/texts*.txt
+/ner/inter_annotator_agreement/annotations/*.json
+/ner/inter_annotator_agreement/annotations/texts*.txt
+
+# ---------------------------------------------------------------------------
+# Agent-related files
+# ---------------------------------------------------------------------------
+CLAUDE.md
+AGENTS.md
+.claude/
+tmp/

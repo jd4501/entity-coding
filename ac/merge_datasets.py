@@ -1,138 +1,217 @@
-import pandas as pd
-from html import unescape
+"""Merge the four AC sources into stratified train, val, and test splits.
+
+By default this script consumes the CSVs regenerated under `ac/data/` by the
+four `prepare_*` scripts:
+
+    2010_train.csv and 2010_test.csv
+    i2b2_2012_merged.csv
+    mimic_assertion_data.csv
+    our_new_assertions.csv
+
+It writes `train_expanded.csv`, `val_expanded.csv`, and `test_expanded.csv`
+back to the same directory. The label handling matches the paper pipeline:
+i2b2 2010 `conditional` rows are dropped, and `present` rows from MIMIC-III
+and i2b2 2012 are dropped because the 2010 source already supplies many
+present examples.
+
+Pass `--deterministic` to sort by normalized text before each stratified split.
+That option is useful when source-row order is not stable across reruns, but
+the default path (no flag) reproduces the splits from the original paper.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
 import re
 import string
+from html import unescape
+from pathlib import Path
+
+import pandas as pd
 from sklearn.model_selection import train_test_split
 
-def normalize_text(text):
+try:
+    from common import (
+        AC_DATA_DIR,
+        add_log_level,
+        configure_logging,
+        require_columns,
+        require_file,
+    )
+except ModuleNotFoundError:
+    from ac.common import (
+        AC_DATA_DIR,
+        add_log_level,
+        configure_logging,
+        require_columns,
+        require_file,
+    )
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+LOGGER = logging.getLogger("merge_datasets")
+REQUIRED_COLUMNS = {"text", "assertion"}
+
+
+def normalize_text(text: str) -> str:
     text = text.lower()
-    text = text.translate(str.maketrans('', '', string.punctuation))
-    text = re.sub(r'\s+', ' ', text).strip()
+    text = text.translate(str.maketrans("", "", string.punctuation))
+    text = re.sub(r"\s+", " ", text).strip()
     return text
 
-# Load and filter datasets
-base_train = pd.read_csv('ac/data/2010_train.csv')
-base_train = base_train[base_train['assertion'] != 'conditional']
-base_test = pd.read_csv('ac/data/2010_test.csv')
-base_test = base_test[base_test['assertion'] != 'conditional']
 
-mimic = pd.read_csv('ac/data/mimic_assertion_data.csv')
-mimic = mimic[mimic['assertion'] != 'present']
+def sort_canonical(df: pd.DataFrame) -> pd.DataFrame:
+    """Sort by normalized text and assertion before splitting."""
+    if "text_norm" not in df.columns:
+        df = df.assign(text_norm=df["text"].map(normalize_text))
+    return df.sort_values(["text_norm", "assertion"], kind="stable").reset_index(drop=True)
 
-i2b2_2012 = pd.read_csv('ac/data/i2b2_2012_merged.csv')
-i2b2_2012 = i2b2_2012[i2b2_2012['assertion'] != 'present']
-i2b2_2012['text'] = i2b2_2012['text'].apply(unescape)
 
-# Normalize text
-base_train['text_norm'] = base_train['text'].apply(normalize_text)
-base_test['text_norm'] = base_test['text'].apply(normalize_text)
-i2b2_2012['text_norm'] = i2b2_2012['text'].apply(normalize_text)
+def read_assertion_csv(data_dir: Path, filename: str) -> pd.DataFrame:
+    path = require_file(data_dir / filename, f"AC source CSV {filename}")
+    df = pd.read_csv(path)
+    require_columns(df.columns, REQUIRED_COLUMNS, path)
+    return df
 
-# Remove overlaps
-overlap_2012_with_train = pd.merge(base_train, i2b2_2012, on='text_norm', how='inner')
-i2b2_2012 = i2b2_2012[~i2b2_2012['text_norm'].isin(overlap_2012_with_train['text_norm'])]
 
-overlap_2012_with_test = pd.merge(base_test, i2b2_2012, on='text_norm', how='inner')
-i2b2_2012 = i2b2_2012[~i2b2_2012['text_norm'].isin(overlap_2012_with_test['text_norm'])]
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=AC_DATA_DIR,
+        help="Directory containing source CSVs and receiving output splits.",
+    )
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help=(
+            "Sort by normalized text before each stratified split. This makes outputs "
+            "depend on row content instead of source ordering, but does not match "
+            "the frozen paper splits exactly."
+        ),
+    )
+    add_log_level(parser)
+    return parser.parse_args()
 
-# Combine training and test, mark sources
-base_train['source'] = 'train'
-base_test['source'] = 'test'
-combined_df = pd.concat([base_train, base_test], ignore_index=True).drop_duplicates(subset='text')
 
-target_col = 'assertion'
-total_size = len(combined_df)
-test_size = int(total_size * 0.2)
-train_size = int(total_size * 0.7)
-val_size = total_size - train_size - test_size
+def main() -> None:
+    args = parse_args()
+    configure_logging(args.log_level)
+    sort_for_split = sort_canonical if args.deterministic else (lambda df: df.reset_index(drop=True))
 
-# Split off 20% test from original test
-test_data_from_test, remaining_test = train_test_split(
-    combined_df[combined_df['source'] == 'test'],
-    test_size=(len(base_test) - test_size),
-    stratify=combined_df[combined_df['source'] == 'test'][target_col],
-    random_state=1
-)
+    data_dir: Path = args.data_dir
+    data_dir.mkdir(parents=True, exist_ok=True)
 
-train_filtered = combined_df[combined_df['source'] == 'train'][['text', target_col]]
-remaining_data = pd.concat([train_filtered, remaining_test], ignore_index=True)
+    base_train = read_assertion_csv(data_dir, "2010_train.csv")
+    base_train = base_train[base_train["assertion"] != "conditional"]
+    base_test = read_assertion_csv(data_dir, "2010_test.csv")
+    base_test = base_test[base_test["assertion"] != "conditional"]
 
-train_data, val_data = train_test_split(
-    remaining_data,
-    test_size=val_size / (train_size + val_size),
-    stratify=remaining_data[target_col],
-    random_state=1
-)
+    mimic = read_assertion_csv(data_dir, "mimic_assertion_data.csv")
+    mimic = mimic[mimic["assertion"] != "present"]
 
-print(f"Total size (i2b2 2010 only - rebalanced): {total_size}")
-print(f"Train size (i2b2 2010 only - rebalanced): {len(train_data)}")
-print(f"Validation size (i2b2 2010 only - rebalanced): {len(val_data)}")
-print(f"Test size (i2b2 2010 only - rebalanced): {len(test_data_from_test)}")
+    i2b2_2012 = read_assertion_csv(data_dir, "i2b2_2012_merged.csv")
+    i2b2_2012 = i2b2_2012[i2b2_2012["assertion"] != "present"].copy()
+    i2b2_2012["text"] = i2b2_2012["text"].apply(unescape)
 
-train_data = train_data[['text', 'assertion']]
-val_data = val_data[['text', 'assertion']]
-test_data_from_test = test_data_from_test[['text', 'assertion']]
+    for df in (base_train, base_test, i2b2_2012):
+        df["text_norm"] = df["text"].apply(normalize_text)
 
-# Save intermediate train
-train_data.to_csv('ac/data/train_i2b2_only.csv', index=False)
+    i2b2_2012 = i2b2_2012[~i2b2_2012["text_norm"].isin(base_train["text_norm"])]
+    i2b2_2012 = i2b2_2012[~i2b2_2012["text_norm"].isin(base_test["text_norm"])]
 
-# Prepare i2b2 2012
-i2b2_2012 = i2b2_2012[['text', 'assertion']]
+    base_train = base_train.assign(source="train")
+    base_test = base_test.assign(source="test")
+    combined_df = pd.concat([base_train, base_test], ignore_index=True).drop_duplicates(subset="text")
 
-# Combine mimic and i2b2 2012
-expanded_training = pd.concat([mimic, i2b2_2012], ignore_index=True)
+    target_col = "assertion"
+    total_size = len(combined_df)
+    test_size_abs = int(total_size * 0.2)
+    train_size_abs = int(total_size * 0.7)
+    val_size_abs = total_size - train_size_abs - test_size_abs
 
-# Normalize text
-combined_df['text_norm'] = combined_df['text'].apply(normalize_text)
-expanded_training['text'] = expanded_training['text'].apply(unescape)
-expanded_training['text_norm'] = expanded_training['text'].apply(normalize_text)
-expanded_training = expanded_training.drop_duplicates(subset='text_norm')
+    test_src = combined_df[combined_df["source"] == "test"]
+    train_src = combined_df[combined_df["source"] == "train"]
 
-# Remove overlaps
-common_texts = set(expanded_training['text_norm']).intersection(set(combined_df['text_norm']))
-expanded_training = expanded_training[~expanded_training['text_norm'].isin(common_texts)]
+    sorted_test_src = sort_for_split(test_src)
+    test_data_from_test, remaining_test = train_test_split(
+        sorted_test_src,
+        test_size=(len(base_test) - test_size_abs),
+        stratify=sorted_test_src[target_col],
+        random_state=args.seed,
+    )
 
-# Add new annotations
-new_data = pd.read_csv('ac/data/all_new_assertions.csv')
-expanded_training = expanded_training[['text', 'assertion']]
-expanded_training = pd.concat([expanded_training, new_data], ignore_index=True)
-expanded_dataset = expanded_training.dropna()
+    remaining_data = pd.concat(
+        [train_src[["text", target_col]], remaining_test[["text", target_col]]],
+        ignore_index=True,
+    )
+    remaining_data = sort_for_split(remaining_data)
 
-# Split expanded dataset
-expanded_train, expanded_testval = train_test_split(
-    expanded_dataset, test_size=0.3,
-    stratify=expanded_dataset[target_col],
-    random_state=1
-)
+    train_data, val_data = train_test_split(
+        remaining_data,
+        test_size=val_size_abs / (train_size_abs + val_size_abs),
+        stratify=remaining_data[target_col],
+        random_state=args.seed,
+    )
 
-expanded_test, expanded_val = train_test_split(
-    expanded_testval, test_size=0.65,
-    stratify=expanded_testval[target_col],
-    random_state=1
-)
+    LOGGER.info("Total size for i2b2 2010 rebalanced pool: %s", total_size)
+    LOGGER.info("Train size for i2b2 2010 rebalanced pool: %s", len(train_data))
+    LOGGER.info("Validation size for i2b2 2010 rebalanced pool: %s", len(val_data))
+    LOGGER.info("Test size for i2b2 2010 rebalanced pool: %s", len(test_data_from_test))
 
-# Final merges
-final_train = pd.concat([train_data, expanded_train], ignore_index=True)
-final_val = pd.concat([val_data, expanded_val], ignore_index=True)
-final_test = pd.concat([test_data_from_test, expanded_test], ignore_index=True)
+    train_data = train_data[["text", "assertion"]]
+    val_data = val_data[["text", "assertion"]]
+    test_data_from_test = test_data_from_test[["text", "assertion"]]
 
-final_train = final_train[['text', 'assertion']]
-final_val = final_val[['text', 'assertion']]
-final_test = final_test[['text', 'assertion']]
+    i2b2_2012 = i2b2_2012[["text", "assertion"]]
+    expanded = pd.concat([mimic, i2b2_2012], ignore_index=True)
 
-train_val = pd.concat([final_train, final_val], ignore_index=True)
-train_val.to_csv('ac/data/train_val.csv', index=False)
+    combined_df["text_norm"] = combined_df["text"].apply(normalize_text)
+    expanded["text"] = expanded["text"].apply(unescape)
+    expanded["text_norm"] = expanded["text"].apply(normalize_text)
+    expanded = expanded.drop_duplicates(subset="text_norm")
+    expanded = expanded[~expanded["text_norm"].isin(set(combined_df["text_norm"]))]
 
-all_data = pd.concat([final_train, final_val, final_test], ignore_index=True)
-all_data.to_csv('ac/data/all_assertion_data.csv', index=False)
+    new_data = read_assertion_csv(data_dir, "our_new_assertions.csv")
+    expanded = pd.concat([expanded[["text", "assertion"]], new_data], ignore_index=True).dropna()
+    expanded = sort_for_split(expanded)
 
-# Check final splits
-final_train.to_csv('ac/data/train_expanded.csv', index=False)
-final_val.to_csv('ac/data/val_expanded.csv', index=False)
-final_test.to_csv('ac/data/test_expanded.csv', index=False)
+    expanded_train, expanded_testval = train_test_split(
+        expanded,
+        test_size=0.3,
+        stratify=expanded[target_col],
+        random_state=args.seed,
+    )
+    expanded_testval = sort_for_split(expanded_testval)
+    expanded_test, expanded_val = train_test_split(
+        expanded_testval,
+        test_size=0.65,
+        stratify=expanded_testval[target_col],
+        random_state=args.seed,
+    )
 
-total_size_expanded = len(final_train) + len(final_test) + len(final_val)
-print(f"Total expanded size: {total_size_expanded}")
-print(f"Train size: {len(final_train)}")
-print(f"Validation size: {len(final_val)}")
-print(f"Test size: {len(final_test)}")
+    final_train = pd.concat([train_data, expanded_train[["text", "assertion"]]], ignore_index=True)
+    final_val = pd.concat([val_data, expanded_val[["text", "assertion"]]], ignore_index=True)
+    final_test = pd.concat([test_data_from_test, expanded_test[["text", "assertion"]]], ignore_index=True)
+
+    train_out = data_dir / "train_expanded.csv"
+    val_out = data_dir / "val_expanded.csv"
+    test_out = data_dir / "test_expanded.csv"
+    final_train.to_csv(train_out, index=False)
+    final_val.to_csv(val_out, index=False)
+    final_test.to_csv(test_out, index=False)
+
+    total = len(final_train) + len(final_val) + len(final_test)
+    LOGGER.info("Total expanded size: %s", total)
+    LOGGER.info("Train size: %s", len(final_train))
+    LOGGER.info("Validation size: %s", len(final_val))
+    LOGGER.info("Test size: %s", len(final_test))
+    LOGGER.info("Wrote %s, %s, and %s", train_out, val_out, test_out)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,50 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper below."
+title: "Entity-Coding"
+authors:
+  - family-names: Douglas
+    given-names: James C.
+  - family-names: Gan
+    given-names: Yidong
+  - family-names: Hachey
+    given-names: Ben
+  - family-names: Kummerfeld
+    given-names: Jonathan K.
+preferred-citation:
+  type: conference-paper
+  title: "Less is More: Explainable and Efficient ICD Code Prediction with Clinical Entities"
+  authors:
+    - family-names: Douglas
+      given-names: James C.
+    - family-names: Gan
+      given-names: Yidong
+    - family-names: Hachey
+      given-names: Ben
+    - family-names: Kummerfeld
+      given-names: Jonathan K.
+  editors:
+    - family-names: Che
+      given-names: Wanxiang
+    - family-names: Nabende
+      given-names: Joyce
+    - family-names: Shutova
+      given-names: Ekaterina
+    - family-names: Pilehvar
+      given-names: Mohammad Taher
+  collection-title: "Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)"
+  collection-type: proceedings
+  year: 2025
+  month: 7
+  conference:
+    name: "63rd Annual Meeting of the Association for Computational Linguistics"
+    city: Vienna
+    country: AT
+  publisher:
+    name: "Association for Computational Linguistics"
+  url: "https://aclanthology.org/2025.acl-long.1489/"
+  doi: "10.18653/v1/2025.acl-long.1489"
+  start: 30835
+  end: 30847
+  isbn: "979-8-89176-251-0"
+license: MIT
+repository-code: "https://github.com/jd4501/Entity-Coding"

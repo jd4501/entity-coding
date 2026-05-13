@@ -1,3 +1,15 @@
+"""Train the entity-only PLM-CA ICD code model for this project.
+
+This script is a lightly edited copy of Joakim Edin's upstream `train_plm.py`:
+https://github.com/JoakimEdin/explainable-medical-coding/blob/main/train_plm.py
+
+It stays intentionally close to that file so local changes can be compared against the
+upstream PLM-CA training code. The main project-specific difference is that the
+entity-only text contains entity tags such as `<disorder>` and `<medication>`, so this
+script registers those tags as special tokens, saves the matching tokenizer, and
+resizes the model embeddings before training.
+"""
+
 # ruff: noqa: E402
 import logging
 import math
@@ -38,12 +50,6 @@ LOGGER.setLevel(logging.INFO)
     config_name="config",
 )
 def main(cfg: OmegaConf) -> None:
-    """
-    Added logic for:
-      - Adding special entity tokens
-      - Resizing model embeddings
-      - Checking that new token embeddings are actually learned
-    """
     if cfg.deterministic:
         deterministic()
 
@@ -59,7 +65,8 @@ def main(cfg: OmegaConf) -> None:
         cfg.model.configs.model_path,
     )
 
-    # Define special tokens
+    # Entity-only documents contain tags emitted by the NER stage. Treat each tag
+    # as one token so PLM-CA can learn an embedding for the entity type marker.
     special_tokens_dict = {
         "additional_special_tokens": [
             "<disorder>",
@@ -73,9 +80,10 @@ def main(cfg: OmegaConf) -> None:
     num_added_toks = text_tokenizer.add_special_tokens(special_tokens_dict)
     LOGGER.info(f"Added {num_added_toks} special tokens to the tokenizer.")
 
-    # Save and reload the tokenizer
-    text_tokenizer.save_pretrained("models/tokenizer")
-    text_tokenizer = AutoTokenizer.from_pretrained("models/tokenizer")
+    # Entity-only inference reloads this tokenizer so the model and tokenizer share
+    # the same added-token vocabulary.
+    text_tokenizer.save_pretrained("models/tokenizer_latest")
+    text_tokenizer = AutoTokenizer.from_pretrained("models/tokenizer_latest")
 
     if model_path is None:
         model = factories.get_model(config=cfg.model, data_info={"num_classes":9999,"pad_token_id": text_tokenizer.pad_token_id})
@@ -90,7 +98,7 @@ def main(cfg: OmegaConf) -> None:
             device=device,
         )
 
-    # Resize model embeddings.
+    # The tokenizer has grown, so expand the RoBERTa embedding table before training.
     if num_added_toks > 0:
         model.roberta_encoder.resize_token_embeddings(len(text_tokenizer))
         LOGGER.info("Resized token embeddings to accommodate new special tokens.")
@@ -105,7 +113,7 @@ def main(cfg: OmegaConf) -> None:
         embeddings = model.roberta_encoder.embeddings.word_embeddings.weight[token_ids]
         return embeddings
 
-    # Get embeddings for the special tokens before training
+    # Keep a pre-training snapshot to confirm the entity-token embeddings update.
     special_tokens = [
         "<disorder>",
         "<medication>",
@@ -255,7 +263,7 @@ def main(cfg: OmegaConf) -> None:
 
     trainer.fit()
 
-    # Compare special-token embeddings before vs. after training
+    # This entity-only copy checks that the added tag embeddings were optimized.
     after_training_embeddings = (
         get_embeddings_for_tokens(text_tokenizer, model, special_tokens)
         .detach()
@@ -273,13 +281,6 @@ def main(cfg: OmegaConf) -> None:
     for token in special_tokens:
         token_id = text_tokenizer.convert_tokens_to_ids(token)
         LOGGER.info(f"Special token '{token}' has token ID: {token_id}")
-
-    # Verify
-    test_text = "The patient was diagnosed with <disorder> and reported <abnormal_finding>."
-    encoded_input = text_tokenizer(test_text, return_tensors="pt")
-    LOGGER.info(f"Encoded input IDs: {encoded_input['input_ids']}")
-    decoded_text = text_tokenizer.decode(encoded_input["input_ids"][0])
-    LOGGER.info(f"Decoded text: {decoded_text}")
 
 
 if __name__ == "__main__":

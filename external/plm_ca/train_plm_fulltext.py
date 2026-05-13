@@ -1,3 +1,14 @@
+"""Train the full-text PLM-CA ICD code model for this project.
+
+This script is a lightly edited copy of Joakim Edin's upstream `train_plm.py`:
+https://github.com/JoakimEdin/explainable-medical-coding/blob/main/train_plm.py
+
+It stays intentionally close to that file so local changes can be compared against the
+upstream PLM-CA training code. This full-text baseline keeps the upstream tokenizer
+path unchanged and does not add entity special tokens; that entity-only difference is
+kept in `train_plm_entities.py`.
+"""
+
 # ruff: noqa: E402
 import logging
 import math
@@ -53,6 +64,8 @@ def main(cfg: OmegaConf) -> None:
     text_tokenizer = AutoTokenizer.from_pretrained(
         cfg.model.configs.model_path,
     )
+    # Full-text training keeps the upstream tokenizer unchanged. Entity tags are
+    # handled only in the entity-only training copy.
     max_input_length = int(cfg.data.max_length)
     # tokenize text
     dataset = dataset.map(

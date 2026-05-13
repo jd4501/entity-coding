@@ -1,178 +1,404 @@
+"""Download the model files used by the entity-coding pipeline.
+
+This script reads `config/download_config.yaml`, downloads the selected model
+archives, and extracts them into the repo-owned locations used by the NER,
+assertion classification, and PLM-CA inference scripts. By default it downloads
+all released model artefacts. Use `--models` to fetch only part of the bundle
+and `--cleanup` to remove downloaded archives after extraction.
+"""
+
 import argparse
-import os
+import logging
 import re
 import string
-import zipfile
 import tarfile
-import requests
+import zipfile
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
 import gdown
+import requests
 import yaml
 from tqdm import tqdm
 
-def sanitize_filename(name):
-    # Removes invalid characters for Windows filenames
+LOGGER = logging.getLogger("data_download")
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR
+DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "download_config.yaml"
+DOWNLOAD_DIR = REPO_ROOT / "downloads"
+
+CHUNK_SIZE = 1024 * 1024
+REQUEST_TIMEOUT = 30
+MODEL_CHOICES = ("all", "ner", "ac", "roberta", "entity-only", "fulltext")
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
+
+
+@dataclass(frozen=True)
+class DownloadTask:
+    label: str
+    url: str
+    target_dir: Path
+    filename: str
+    is_external: bool = False
+
+
+class ConfigError(ValueError):
+    """Raised when the download config is missing a selected model URL."""
+
+
+def configure_logging(level: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, level.upper()),
+        format="%(levelname)s %(name)s: %(message)s",
+    )
+
+
+def display_path(path: Path) -> str:
+    """Return a compact repo-relative path when possible."""
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def resolve_repo_path(path: str | Path) -> Path:
+    """Resolve CLI paths relative to the repo root, matching top-level scripts."""
+    path = Path(path)
+    if path.is_absolute():
+        return path
+    return REPO_ROOT / path
+
+
+def sanitize_filename(name: str) -> str:
+    """Return a filename that is portable across Windows and POSIX filesystems."""
     valid_chars = f"-_.() {string.ascii_letters}{string.digits}"
-    return ''.join(c for c in name if c in valid_chars) or "downloaded_file"
+    return "".join(c for c in name if c in valid_chars) or "downloaded_file"
 
-def download_from_drive(url, output_path, filename):
-    """
-    Download a file from Google Drive using gdown.
-    Extracts file ID from URL and ensures valid filenames for Windows.
-    """
-    # Extract file ID from URL
-    match = re.search(r"/d/([a-zA-Z0-9_-]+)", url)
-    if not match:
-        raise ValueError("Invalid Google Drive URL")
 
-    file_id = match.group(1)
+def google_drive_file_id(url: str) -> str:
+    """Extract a file ID from common Google Drive file URL formats."""
+    parsed = urlparse(url)
+    query_id = parse_qs(parsed.query).get("id", [None])[0]
+    if query_id:
+        return query_id
 
-    # Make sure the output directory exists
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    match = re.search(r"/d/([a-zA-Z0-9_-]+)", parsed.path)
+    if match:
+        return match.group(1)
 
-    # If the output filename is not specified properly, sanitize it
-    filename = os.path.basename(output_path)
-    clean_filename = sanitize_filename(filename)
-    
-    clean_output_path = os.path.join(os.path.dirname(output_path), clean_filename)
+    raise ValueError(
+        "Invalid Google Drive file URL. Expected a URL containing '/d/<file_id>' "
+        "or an 'id=<file_id>' query parameter."
+    )
 
-    # Perform the download using gdown
-    gdown.download(id=file_id, output=clean_output_path, quiet=False)
 
-def download_from_url(url, output_path):
-    """
-    Download a file from an external URL with a progress bar.
-    """
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    response = requests.get(url, stream=True)
-    total_size = int(response.headers.get('content-length', 0))
-    block_size = 1024  # 1 KB
-    with open(output_path, 'wb') as file, tqdm(
-        desc=f"Downloading {os.path.basename(output_path)}",
-        total=total_size,
-        unit='B',
-        unit_scale=True,
-        unit_divisor=1024
-    ) as bar:
-        for data in response.iter_content(block_size):
-            file.write(data)
-            bar.update(len(data))
+def finalize_download(part_path: Path, output_path: Path, source: str) -> Path:
+    if not part_path.exists() or part_path.stat().st_size == 0:
+        raise RuntimeError(f"Download from {source} produced an empty file at {output_path}.")
+    part_path.replace(output_path)
+    return output_path
 
-def unzip_file(zip_path, extract_to):
-    """
-    Extract a ZIP archive.
-    """
-    print(f"\n Unzipping {zip_path} to {extract_to}...")
-    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+
+def download_from_drive(url: str, output_path: Path) -> Path:
+    """Download a Google Drive file to a temporary `.part` file before publishing it."""
+    file_id = google_drive_file_id(url)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    clean_output_path = output_path.with_name(sanitize_filename(output_path.name))
+    part_path = clean_output_path.parent / f"{clean_output_path.name}.part"
+    part_path.unlink(missing_ok=True)
+
+    LOGGER.info("Downloading Google Drive file to %s", display_path(clean_output_path))
+    try:
+        result = gdown.download(url=url, output=str(part_path), quiet=True, fuzzy=True)
+        if not result:
+            raise RuntimeError(
+                f"gdown failed to download Google Drive file id={file_id} to {clean_output_path}. "
+                "The file may be private, deleted, or rate-limited; try again or check the URL."
+            )
+        return finalize_download(part_path, clean_output_path, f"Google Drive file id={file_id}")
+    finally:
+        part_path.unlink(missing_ok=True)
+
+
+def download_from_url(url: str, output_path: Path) -> Path:
+    """Download an external URL to a temporary `.part` file before publishing it."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    part_path = output_path.parent / f"{output_path.name}.part"
+    part_path.unlink(missing_ok=True)
+
+    LOGGER.info("Downloading URL to %s", display_path(output_path))
+    try:
+        with requests.get(url, stream=True, timeout=REQUEST_TIMEOUT) as response:
+            response.raise_for_status()
+            total_size = int(response.headers.get("content-length", 0))
+            with part_path.open("wb") as file, tqdm(
+                desc=f"Downloading {output_path.name}",
+                total=total_size,
+                unit="B",
+                unit_scale=True,
+                unit_divisor=1024,
+                disable=not LOGGER.isEnabledFor(logging.INFO),
+            ) as bar:
+                for data in response.iter_content(CHUNK_SIZE):
+                    if not data:
+                        continue
+                    file.write(data)
+                    bar.update(len(data))
+        return finalize_download(part_path, output_path, url)
+    finally:
+        part_path.unlink(missing_ok=True)
+
+
+def _ensure_within_directory(target_dir: Path, member_path: str) -> None:
+    """Reject archive members that would extract outside the target directory."""
+    target_real = target_dir.resolve()
+    member_real = (target_dir / member_path).resolve()
+    try:
+        member_real.relative_to(target_real)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Refusing to extract archive member outside target directory: {member_path!r}"
+        ) from exc
+
+
+def unzip_file(zip_path: Path, extract_to: Path) -> None:
+    """Extract a ZIP archive, rejecting members that would escape the target directory."""
+    LOGGER.info("Unzipping %s to %s", display_path(zip_path), display_path(extract_to))
+    with zipfile.ZipFile(zip_path, "r") as zip_ref:
         file_list = zip_ref.infolist()
-        os.makedirs(extract_to, exist_ok=True)
-        for file in tqdm(file_list, desc="Extracting", unit="file"):
+        extract_to.mkdir(parents=True, exist_ok=True)
+        for file in tqdm(
+            file_list,
+            desc="Extracting",
+            unit="file",
+            disable=not LOGGER.isEnabledFor(logging.INFO),
+        ):
+            _ensure_within_directory(extract_to, file.filename)
             zip_ref.extract(file, extract_to)
-    print("Unzipping complete.")
+    LOGGER.info("Unzipping complete.")
 
-def untar_file(tar_path, extract_to):
-    """
-    Extract a TAR.GZ archive.
-    """
-    print(f"\n Extracting TAR.GZ {tar_path} to {extract_to}...")
+
+def untar_file(tar_path: Path, extract_to: Path) -> None:
+    """Extract a TAR.GZ archive, rejecting members that would escape the target directory."""
+    LOGGER.info("Extracting TAR.GZ %s to %s", display_path(tar_path), display_path(extract_to))
     with tarfile.open(tar_path, "r:gz") as tar:
         members = tar.getmembers()
-        os.makedirs(extract_to, exist_ok=True)
-        for member in tqdm(members, desc="Extracting", unit="file"):
+        extract_to.mkdir(parents=True, exist_ok=True)
+        for member in tqdm(
+            members,
+            desc="Extracting",
+            unit="file",
+            disable=not LOGGER.isEnabledFor(logging.INFO),
+        ):
+            _ensure_within_directory(extract_to, member.name)
+            if member.islnk() or member.issym():
+                raise RuntimeError(
+                    f"Refusing to extract link member from tar archive: {member.name!r}"
+                )
             tar.extract(member, extract_to)
-    print("Extraction complete.")
+    LOGGER.info("Extraction complete.")
 
-def process_download(url, target_dir, filename, cleanup, is_external=False):
-    """
-    Download and extract a file from a given URL into the target directory.
 
-    Uses gdown for Google Drive URLs or requests for external URLs, and
-    extracts based on file extension (.zip or .tar.gz). If the file is not an
-    archive, it is moved directly.
-    """
-    os.makedirs(target_dir, exist_ok=True)
-    temp_dir = "downloads"
-    os.makedirs(temp_dir, exist_ok=True)
+def process_download(task: DownloadTask, cleanup: bool) -> None:
+    """Download one configured artefact and extract it into its repo-owned directory."""
+    task.target_dir.mkdir(parents=True, exist_ok=True)
+    DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Use sanitized basename from URL
-    if is_external == True:
-        raw_filename = os.path.basename(url)
-        filename = sanitize_filename(raw_filename)
-    archive_path = os.path.join(temp_dir, filename)
-    
-    print(f"\nDownloading file from {url}...")
-    if is_external:
-        download_from_url(url, archive_path)
+    filename = task.filename
+    if task.is_external:
+        filename = sanitize_filename(Path(urlparse(task.url).path).name)
+    archive_path = DOWNLOAD_DIR / filename
+
+    LOGGER.info("Processing %s", task.label)
+    if task.is_external:
+        archive_path = download_from_url(task.url, archive_path)
     else:
-        download_from_drive(url, archive_path, filename)
-    
-    # Extract based on file extension or simply move the file if not an archive.
-    if archive_path.endswith(".zip"):
-        unzip_file(archive_path, target_dir)
-    elif archive_path.endswith(".tar.gz"):
-        untar_file(archive_path, target_dir)
-    else:
-        target_file = os.path.join(target_dir, filename)
-        os.replace(archive_path, target_file)
-        print(f"Downloaded file saved to {target_file}")
-    
-    if cleanup and os.path.exists(archive_path):
-        os.remove(archive_path)
-        print(f"Deleted archive: {archive_path}")
+        archive_path = download_from_drive(task.url, archive_path)
 
-def main():
+    if archive_path.name.endswith(".zip"):
+        unzip_file(archive_path, task.target_dir)
+    elif archive_path.name.endswith(".tar.gz"):
+        untar_file(archive_path, task.target_dir)
+    else:
+        target_file = task.target_dir / filename
+        archive_path.replace(target_file)
+        LOGGER.info("Downloaded file saved to %s", display_path(target_file))
+
+    if cleanup and archive_path.exists():
+        archive_path.unlink()
+        LOGGER.info("Deleted archive: %s", display_path(archive_path))
+
+
+def parse_models_arg(value: str) -> set[str]:
+    """Parse the comma-separated --models value into a set of selected model names."""
+    selected = {item.strip() for item in value.split(",") if item.strip()}
+    invalid = selected - set(MODEL_CHOICES)
+    if invalid:
+        raise argparse.ArgumentTypeError(
+            f"Unknown model selector(s): {sorted(invalid)}. Choose from: {MODEL_CHOICES}."
+        )
+    if not selected:
+        raise argparse.ArgumentTypeError("Select at least one model.")
+    if "all" in selected:
+        return {"ner", "ac", "roberta", "entity-only", "fulltext"}
+    return selected
+
+
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Download and extract model files using URLs from a YAML config file."
     )
     parser.add_argument(
-        '--config',
-        type=str,
-        default='config/download_config.yaml',
-        help='Path to the YAML configuration file (default: config/download_config.yaml)'
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help="Path to the YAML configuration file (default: config/download_config.yaml).",
     )
     parser.add_argument(
-        '--cleanup',
-        action='store_true',
-        help='Delete archive files after extraction'
+        "--cleanup",
+        action="store_true",
+        help="Delete archive files after extraction.",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--models",
+        type=parse_models_arg,
+        default=parse_models_arg("all"),
+        help=(
+            "Comma-separated list of models to download. "
+            "Choices: all (default - every model), ner (NER model), ac (AC model), "
+            "roberta (RoBERTa-PM encoder; init weights for retraining), "
+            "entity-only (entity-only ICD-10 coding model + matching tokenizer), "
+            "fulltext (full-text ICD-10 coding model). "
+            "Example: --models ner,ac,entity-only"
+        ),
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=LOG_LEVELS,
+        help="Logging verbosity (default: INFO).",
+    )
+    return parser.parse_args()
 
-    # Load configuration from YAML file.
-    if not os.path.exists(args.config):
-        print(f"Config file not found: {args.config}")
-        return
 
-    with open(args.config, 'r') as f:
-        config_data = yaml.safe_load(f)
+def load_config(config_path: Path) -> Mapping[str, object]:
+    if not config_path.exists():
+        raise ConfigError(f"Config file not found: {display_path(config_path)}")
 
-    # Process NER Model (Google Drive)
-    if config_data.get('ner'):
-        target = os.path.join('data', 'models')
-        process_download(config_data['ner'], target, 'ner_model.zip', args.cleanup, is_external=False)
+    with config_path.open("r", encoding="utf-8") as file:
+        config_data = yaml.safe_load(file) or {}
+    if not isinstance(config_data, Mapping):
+        raise ConfigError(
+            f"Config file must contain a YAML mapping: {display_path(config_path)}"
+        )
+    return config_data
 
-    # Process AC Model (Google Drive)
-    if config_data.get('ac'):
-        target = os.path.join('data', 'models')
-        process_download(config_data['ac'], target, 'ac_model.zip', args.cleanup, is_external=False)
 
-    # Process RoBERTa Model (External URL)
-    if config_data.get('roberta'):
-        target = os.path.join('data', 'models', 'RoBERTa-base-PM-M3-Voc-distill-align-hf')
-        process_download(config_data['roberta'], target, 'roberta', args.cleanup, is_external=True)
+def required_url(config_data: Mapping[str, object], key_path: tuple[str, ...]) -> str:
+    current: object = config_data
+    for key in key_path[:-1]:
+        if not isinstance(current, Mapping) or not isinstance(current.get(key), Mapping):
+            raise ConfigError(f"Missing config section: {'.'.join(key_path[:-1])}")
+        current = current[key]
 
-    # Process Entity-only Model and Tokenizer (Google Drive)
-    if config_data.get('entity'):
-        entity_config = config_data['entity']
-        if 'model' in entity_config:
-            target_entity = os.path.join('external', 'plm_ca', 'models')
-            process_download(entity_config['model'], target_entity, 'entityonly.zip', args.cleanup, is_external=False)
-        if 'tokenizer' in entity_config:
-            target_tokenizer = os.path.join('external', 'plm_ca', 'models')
-            process_download(entity_config['tokenizer'], target_tokenizer, 'tokenizer_latest.zip', args.cleanup, is_external=False)
+    final_key = key_path[-1]
+    if not isinstance(current, Mapping):
+        raise ConfigError(f"Missing config section: {'.'.join(key_path[:-1])}")
+    value = current.get(final_key)
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"Missing URL in config: {'.'.join(key_path)}")
+    return value
 
-    # Process Full-text Model (Google Drive)
-    if config_data.get('fulltext'):
-        target = os.path.join('external', 'plm_ca', 'models')
-        process_download(config_data['fulltext'], target, 'fulltext.zip', args.cleanup, is_external=False)
+
+def build_download_plan(config_data: Mapping[str, object], selected: set[str]) -> list[DownloadTask]:
+    tasks: list[DownloadTask] = []
+
+    if "ner" in selected:
+        tasks.append(
+            DownloadTask(
+                label="NER model",
+                url=required_url(config_data, ("ner",)),
+                target_dir=REPO_ROOT / "data" / "models",
+                filename="ner_model.zip",
+            )
+        )
+
+    if "ac" in selected:
+        tasks.append(
+            DownloadTask(
+                label="assertion classification model",
+                url=required_url(config_data, ("ac",)),
+                target_dir=REPO_ROOT / "data" / "models",
+                filename="ac_model.zip",
+            )
+        )
+
+    if "roberta" in selected:
+        tasks.append(
+            DownloadTask(
+                label="RoBERTa-PM encoder",
+                url=required_url(config_data, ("roberta",)),
+                target_dir=(
+                    REPO_ROOT
+                    / "data"
+                    / "models"
+                    / "RoBERTa-base-PM-M3-Voc-distill-align-hf"
+                ),
+                filename="roberta",
+                is_external=True,
+            )
+        )
+
+    if "entity-only" in selected:
+        tasks.extend(
+            [
+                DownloadTask(
+                    label="entity-only ICD-10 coding model",
+                    url=required_url(config_data, ("entity", "model")),
+                    target_dir=REPO_ROOT / "external" / "plm_ca" / "models",
+                    filename="entityonly.zip",
+                ),
+                DownloadTask(
+                    label="entity-aware tokenizer",
+                    url=required_url(config_data, ("entity", "tokenizer")),
+                    target_dir=REPO_ROOT / "external" / "plm_ca" / "models",
+                    filename="tokenizer_latest.zip",
+                ),
+            ]
+        )
+
+    if "fulltext" in selected:
+        tasks.append(
+            DownloadTask(
+                label="full-text ICD-10 coding model",
+                url=required_url(config_data, ("fulltext",)),
+                target_dir=REPO_ROOT / "external" / "plm_ca" / "models",
+                filename="fulltext.zip",
+            )
+        )
+
+    return tasks
+
+
+def main() -> None:
+    args = parse_args()
+    configure_logging(args.log_level)
+
+    config_path = resolve_repo_path(args.config)
+    try:
+        config_data = load_config(config_path)
+        tasks = build_download_plan(config_data, args.models)
+    except ConfigError as exc:
+        LOGGER.error("%s", exc)
+        raise SystemExit(1) from exc
+
+    LOGGER.info("Selected models: %s", sorted(args.models))
+    for task in tasks:
+        process_download(task, args.cleanup)
+
 
 if __name__ == "__main__":
     main()

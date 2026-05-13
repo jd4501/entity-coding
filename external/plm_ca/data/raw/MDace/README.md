@@ -1,5 +1,14 @@
 This data has been copied from the following repository: https://github.com/3mcloud/MDACE/tree/main.
 
+The annotation tree under this directory was inherited from the upstream PLM-CA repository at the commit linked in the top-level `README.md`; this project does not modify it. Upstream MDACE is released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+If this tree needs to be restored from upstream, copy:
+
+- `MDACE/data/Inpatient` -> `external/plm_ca/data/raw/MDace/Inpatient`
+- `MDACE/data/Profee` -> `external/plm_ca/data/raw/MDace/Profee`
+
+The PLM-CA preparation script reads these exact local paths.
+
 Please cite their work if you use this data.
 
 Citation:

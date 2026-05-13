@@ -96,3 +96,6 @@ multirun/
 
 # exclude models
 /models
+
+# Local environment overrides (copy .env.example to .env to customise)
+.env

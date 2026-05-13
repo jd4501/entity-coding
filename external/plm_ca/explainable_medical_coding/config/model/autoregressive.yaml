@@ -1,7 +1,7 @@
 name: AutoRegressive
 autoregressive: true
 configs:
-  model_path: /data/users/je/pretrained_models/RoBERTa-base-PM-M3-Voc-hf
+  model_path: models/roberta-base-pm-m3-voc-hf
   chunk_size: 128
   teacher_force_ratio: 1.0
   decoder_config:

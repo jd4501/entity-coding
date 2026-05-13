@@ -2,6 +2,6 @@ ner: "https://drive.google.com/file/d/1GZwp5E0yK-q-17JWznZx4eLR9zKVsJK6/view?usp
 ac: "https://drive.google.com/file/d/1WEqsBbTSibrGmq_O0zEsU5rTmohVaMgQ/view?usp=sharing"
 roberta: "https://dl.fbaipublicfiles.com/biolm/RoBERTa-base-PM-M3-Voc-distill-align-hf.tar.gz"
 entity:
-  model: "https://drive.google.com/file/d/1nFVnQ29nx8R-p4RSMdQ0kAP4Mod3vZKj/view?usp=sharing"
+  model: "https://drive.google.com/file/d/11VSLCZAH3D8JyYFH2zkEw_VLuRiB1tNe/view?usp=sharing"
   tokenizer: "https://drive.google.com/file/d/1STXM3w0PIpWOuN0d7X2NhCWTHuNPYBW2/view?usp=sharing"
-# fulltext: "https://drive.google.com/file/d/17FFuK7VsyxdaqIMdiOqeh3WvE4JXr6b0/view?usp=sharing"
+fulltext: "https://drive.google.com/file/d/1kAO5EILJfIT3w8RbrRc3kVi6bUX9quaQ/view?usp=sharing"

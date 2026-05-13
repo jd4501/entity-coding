@@ -1,298 +1,284 @@
-import os
-import sys
-import glob
-import csv
-import ast
-import json
-import re
+"""HTML visualisation of ICD code predictions and their entity evidence.
+
+Renders one self-contained HTML page per note. Each page shows the cleaned
+note text on the left and a list of predicted ICD-10 codes on the right.
+Selecting a code highlights the entity spans the model attributed weight to,
+and two sliders control the minimum prediction probability and minimum
+evidence attribution shown.
+
+This script visualises the entity-only evidence path only: the predicted
+codes and per-line attributions emitted by
+external/plm_ca/infer_with_explanations.py, where each "line" is one entity.
+The full-text evidence flow (infer_with_explanations_fulltext.py +
+merge_contiguous_spans.py, with character-level spans over the raw note) is
+not supported by this visualiser.
+
+Run first, in order:
+  1. ner/extract_entities.py <input_notes> --save-formatted-texts
+     (produces results/formatted_texts/formatted_<note_id>.txt and the
+     entities CSV consumed by step 2).
+  2. external/plm_ca/infer_with_explanations.py
+     (produces the inference CSV consumed by this script).
+  run_pipeline.py with --visualize-evidence chains all three steps.
+
+Inputs:
+  * Inference CSV from external/plm_ca/infer_with_explanations.py with the
+    columns note_id, predicted_code, predicted_code_probability,
+    evidence_line_numbers, evidence_spans, evidence_texts,
+    evidence_attributions.
+  * Formatted note bodies under the directory passed as --formatted-dir
+    (default: results/formatted_texts/), produced by step 1 above.
+  * data/code_descriptions/d_icd_{diagnoses,procedures}.csv for the ICD long
+    titles shown in the sidebar.
+  * ner/section_patterns.json for the section-header literals that get bolded
+    inside the rendered note.
+
+Outputs:
+  One <note_id>.html file per note found in both the inference CSV and the
+  formatted-texts directory, written into the directory passed as
+  --output-dir (default: results/visualised_notes/).
+
+Example:
+    python code_evidence/visualise_predictions_explanations.py \\
+        results/coded/sample_notes_results.csv
+"""
+
+from __future__ import annotations
+
 import argparse
+import ast
+import csv
+import json
+import logging
+import re
+import sys
+from pathlib import Path
 
-# Loads formatted notes after processing with `ner/extract_entities.py` with `save_formatted_texts = True`. 
-# Also loads mapping files for ICD codes to their textual descriptions
-# and loads code evidence from `modules/plm_ca/infer_with_explanations.py`
-# Maps all of the data onto an interactive HTML projection of the note. 
+LOGGER = logging.getLogger("visualise_predictions_explanations")
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 
-def normalize_icd_code(code):
-    """Normalize ICD code by removing '.' and converting to uppercase."""
-    return code.replace('.', '').upper()
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
 
-def format_icd_code(code):
-    """Format ICD code by inserting '.' after the third character if needed."""
+DEFAULT_FORMATTED_DIR = REPO_ROOT / "results" / "formatted_texts"
+DEFAULT_OUTPUT_DIR = REPO_ROOT / "results" / "visualised_notes"
+SECTION_PATTERNS_FILE = REPO_ROOT / "ner" / "section_patterns.json"
+DIAGNOSES_FILE = REPO_ROOT / "data" / "code_descriptions" / "d_icd_diagnoses.csv"
+PROCEDURES_FILE = REPO_ROOT / "data" / "code_descriptions" / "d_icd_procedures.csv"
+
+REQUIRED_INFERENCE_COLUMNS = (
+    "note_id",
+    "predicted_code",
+    "predicted_code_probability",
+    "evidence_spans",
+    "evidence_attributions",
+)
+
+# Use UTF-8 stdio so unicode prints render on Windows (cp1252) too.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
+def configure_logging(level: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, level.upper()),
+        format="%(levelname)s %(name)s: %(message)s",
+    )
+
+
+def normalize_icd_code(code: str) -> str:
+    """Strip any decimal point and uppercase, so 'I10.9' and 'i109' match."""
+    return code.replace(".", "").upper()
+
+
+def format_icd_code(code: str) -> str:
+    """Re-insert the decimal point after the third character for display."""
     if len(code) > 3:
-        return code[:3] + '.' + code[3:]
-    else:
-        return code
+        return code[:3] + "." + code[3:]
+    return code
 
-def load_section_literals(filename):
-    """Load section literals from the JSON file and normalize them."""
-    with open(filename, 'r', encoding='utf-8') as f:
+
+def load_section_literals(path: Path) -> set[str]:
+    """Load section-header literals from section_patterns.json (lowercased)."""
+    with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
-    # Normalize literals to lowercase to prevent duplicates
-    literals = set(item['literal'].lower() for item in data.get('section_rules', []))
-    return literals
+    return {item["literal"].lower() for item in data.get("section_rules", [])}
 
-def bold_literals_in_text(text, literals):
-    """Find literals in text and wrap them with <strong> tags. Adjust indices accordingly."""
-    # Build a list of all matches and their positions
-    modifications = []
+
+def load_icd_descriptions() -> dict[str, dict[str, str]]:
+    """Build a {normalized_code: {title, type, version}} map from the two CMS
+    descriptor CSVs shipped under data/code_descriptions/. ICD-9 and ICD-10
+    rows are kept; later versions are skipped."""
+    descriptions: dict[str, dict[str, str]] = {}
+    for path, code_type in ((DIAGNOSES_FILE, "diagnosis"), (PROCEDURES_FILE, "procedure")):
+        if not path.exists():
+            LOGGER.warning("ICD %s descriptions file not found: %s", code_type, path)
+            continue
+        with path.open(newline="", encoding="utf-8") as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                version = row["icd_version"]
+                if version not in ("9", "10"):
+                    continue
+                descriptions[normalize_icd_code(row["icd_code"])] = {
+                    "title": row["long_title"],
+                    "type": code_type,
+                    "version": version,
+                }
+    return descriptions
+
+
+_BOLD_PREFIX = "<u><strong>"
+_BOLD_SUFFIX = "</strong></u>"
+
+
+def bold_literals_in_text(text: str, literals: set[str]) -> tuple[str, list[tuple[int, int]]]:
+    """Wrap each (case-insensitive) section-header literal in <u><strong> tags.
+
+    Returns the updated text plus a flat list of (insertion_position,
+    insertion_length) pairs describing each prefix and suffix tag inserted
+    into the original text. :func:`adjust_evidence_spans` consumes that list
+    to translate evidence-span indices from original-text coordinates to
+    bolded-text coordinates, including for spans that overlap a bolded header.
+    """
+    matches: list[tuple[int, int]] = []
     for literal in literals:
         for match in re.finditer(re.escape(literal), text, re.IGNORECASE):
-            start, end = match.start(), match.end()
-            modifications.append((start, end))
+            matches.append((match.start(), match.end()))
 
-    # Remove overlapping matches by keeping the longest match
-    modifications = sorted(modifications, key=lambda x: (x[0], -(x[1]-x[0])))
-    non_overlapping_mods = []
+    # Greedy non-overlap, preferring the longest match starting at each point.
+    matches.sort(key=lambda m: (m[0], -(m[1] - m[0])))
+    non_overlapping: list[tuple[int, int]] = []
     last_end = -1
-    for start, end in modifications:
+    for start, end in matches:
         if start >= last_end:
-            non_overlapping_mods.append((start, end))
+            non_overlapping.append((start, end))
             last_end = end
 
-    # Adjust the text and keep track of index shifts
-    new_text = []
+    pieces: list[str] = []
+    shifts: list[tuple[int, int]] = []
     last_index = 0
-    shifts = []  # List of tuples (pos, shift_amount)
-    total_shift = 0
-    for start, end in non_overlapping_mods:
-        # Adjust start and end based on previous shifts
-        adjusted_start = start + total_shift
-        adjusted_end = end + total_shift
-        # Append text before the match
-        new_text.append(text[last_index:start])
-        # Wrap the literal with <strong> tags
-        bold_literal = f'<u><strong>{text[start:end]}</strong></u>'
-        new_text.append(bold_literal)
-        # Record the shift in indices
-        shift_amount = len(bold_literal) - (end - start)
-        shifts.append((start, shift_amount))
-        total_shift += shift_amount
-        # Update indices
+    for start, end in non_overlapping:
+        pieces.append(text[last_index:start])
+        pieces.append(_BOLD_PREFIX)
+        pieces.append(text[start:end])
+        pieces.append(_BOLD_SUFFIX)
+        shifts.append((start, len(_BOLD_PREFIX)))
+        shifts.append((end, len(_BOLD_SUFFIX)))
         last_index = end
-    # Append the remaining text
-    new_text.append(text[last_index:])
-    bolded_text = ''.join(new_text)
-    return bolded_text, shifts
+    pieces.append(text[last_index:])
+    return "".join(pieces), shifts
 
-def adjust_evidence_spans(spans, shifts):
-    """Adjust evidence spans indices based on the shifts."""
-    adjusted_spans = []
-    for span in spans:
-        start, end = span
-        total_shift = 0
-        for shift_pos, shift_amount in shifts:
-            if shift_pos <= start:
-                total_shift += shift_amount
-            elif shift_pos < end:
-                total_shift += shift_amount
-        adjusted_start = start + total_shift
-        adjusted_end = end + total_shift
-        adjusted_spans.append((adjusted_start, adjusted_end))
-    return adjusted_spans
 
-# Load section literals
-section_literals = load_section_literals('ner/section_patterns.json')
+def adjust_evidence_spans(
+    spans: list[tuple[int, int]],
+    shifts: list[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    """Map original-text spans to bolded-text spans.
 
-# Load ICD code descriptions from both diagnosis and procedure files
-icd_code_descriptions = {}
+    Each `(pos, amount)` shift represents an insertion of `amount` characters
+    at position `pos` in the original text. For a half-open span [s, e):
+    the start is shifted by every insertion at or before s (`pos <= s`), and
+    the end by every insertion strictly before e (`pos < e`). The asymmetric
+    rule keeps spans that lie inside, around, or across a bolded header from
+    bleeding into the inserted <u><strong> or </strong></u> tag characters.
+    """
+    adjusted: list[tuple[int, int]] = []
+    for s, e in spans:
+        start_shift = sum(amount for pos, amount in shifts if pos <= s)
+        end_shift = sum(amount for pos, amount in shifts if pos < e)
+        adjusted.append((s + start_shift, e + end_shift))
+    return adjusted
 
-# Load diagnosis codes
-diag_file = 'data/code_descriptions/d_icd_diagnoses.csv'
-if os.path.exists(diag_file):
-    with open(diag_file, newline='', encoding='utf-8') as csvfile:
+
+def load_predictions(
+    inference_file: Path,
+    icd_descriptions: dict[str, dict[str, str]],
+) -> dict[str, list[dict]]:
+    """Read the inference CSV into a {note_id: [prediction, ...]} map.
+
+    Each prediction is sorted by descending probability inside its note, and
+    the per-prediction evidence_data list of (span, attribution) tuples is
+    sorted by descending attribution. Stable ordering keeps the rendered
+    sidebar deterministic across reruns and saves the JS the work of finding
+    a max-attribution fallback.
+    """
+    if not inference_file.exists():
+        raise FileNotFoundError(f"Inference results file not found: {inference_file}")
+
+    predictions: dict[str, list[dict]] = {}
+    rows_seen = 0
+    with inference_file.open(newline="", encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
+        missing = [c for c in REQUIRED_INFERENCE_COLUMNS if c not in (reader.fieldnames or [])]
+        if missing:
+            raise ValueError(
+                f"{inference_file} is missing required columns: {missing}. "
+                f"Found columns: {reader.fieldnames}"
+            )
         for row in reader:
-            icd_version = row['icd_version']
-            if icd_version not in ['9', '10']:
-                continue  # Skip if not ICD version 9 or 10
-            icd_code = row['icd_code']
-            long_title = row['long_title']
-            
-            # Normalize the ICD code
-            normalized_code = normalize_icd_code(icd_code)
-            # Store the mapping with code type prefix
-            icd_code_descriptions[normalized_code] = {
-                'title': long_title,
-                'type': 'diagnosis',
-                'version': icd_version
-            }
+            rows_seen += 1
+            note_id = row["note_id"]
+            predicted_code = row["predicted_code"]
+            probability = float(row["predicted_code_probability"])
 
-# Load procedure codes
-proc_file = 'data/code_descriptions/d_icd_procedures.csv'
-if os.path.exists(proc_file):
-    with open(proc_file, newline='', encoding='utf-8') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            icd_version = row['icd_version']
-            if icd_version not in ['9', '10']:
-                continue  # Skip if not ICD version 9 or 10
-            icd_code = row['icd_code']
-            long_title = row['long_title']
-            
-            # Normalize the ICD code
-            normalized_code = normalize_icd_code(icd_code)
-            # Store the mapping with code type prefix
-            icd_code_descriptions[normalized_code] = {
-                'title': long_title,
-                'type': 'procedure',
-                'version': icd_version
-            }
+            raw_spans = ast.literal_eval(row["evidence_spans"])
+            spans = [tuple(span) for span in raw_spans] if isinstance(raw_spans, list) else []
+            raw_attrs = ast.literal_eval(row["evidence_attributions"])
+            attributions = [float(a) for a in raw_attrs] if isinstance(raw_attrs, list) else []
 
-def find_inference_file(specified_file=None):
-    """Find the inference results file, either from command line argument or default locations."""
-    if specified_file:
-        if os.path.exists(specified_file):
-            return specified_file
-        else:
-            print(f" Error: Specified inference file not found: {specified_file}")
-            sys.exit(1)
-    
-    # Try to find the inference results file in default locations
-    inference_files = [
-        'code_evidence/inferred_notes_with_evidence.csv',
-        'results/sample_processing/inferred_notes_with_evidence_sample_notes_entities.csv',
-        'results/inferred_notes_with_evidence.csv'
-    ]
-    
-    for file_path in inference_files:
-        if os.path.exists(file_path):
-            return file_path
-    
-    print(" Error: Could not find inference results file. Expected one of:")
-    for f in inference_files:
-        print(f"   • {f}")
-    print(" Or specify the file path as a command line argument:")
-    print("   python visualise_predictions_explanations.py path/to/inference_results.csv")
-    sys.exit(1)
+            evidence_data = sorted(
+                zip(spans, attributions),
+                key=lambda item: item[1],
+                reverse=True,
+            )
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Generate interactive HTML visualizations of ICD predictions with evidence",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python visualise_predictions_explanations.py  # Use default file search
-  python visualise_predictions_explanations.py results/my_results.csv  # Use specific file
-        """
-    )
-    parser.add_argument(
-        "inference_file",
-        nargs='?',
-        default=None,
-        help="Path to the inference results CSV file with evidence spans"
-    )
-    
-    args = parser.parse_args()
-    
-    # Find the inference file
-    inference_file = find_inference_file(args.inference_file)
-    
-    # Read predictions
-    prediction_results = {}  # note_id -> list of predicted codes with evidence spans
+            normalized = normalize_icd_code(predicted_code)
+            info = icd_descriptions.get(
+                normalized,
+                {"title": "Unknown code", "type": "unknown", "version": "unknown"},
+            )
 
-    print(f" Loading predictions from: {inference_file}")
-    with open(inference_file, newline='', encoding='utf-8') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            note_id = row['note_id']
-            predicted_code = row['predicted_code']
-            predicted_code_probability = float(row['predicted_code_probability'])
-            evidence_spans = row['evidence_spans']
-            evidence_attributions = row['evidence_attributions']
-
-            # Parse evidence_spans safely using ast.literal_eval
-            evidence_spans_list = ast.literal_eval(evidence_spans)
-            # Ensure spans is a list of tuples
-            if isinstance(evidence_spans_list, list):
-                spans = [tuple(span) for span in evidence_spans_list]
-            else:
-                spans = []
-
-            # Parse evidence_attributions
-            evidence_attributions_list = ast.literal_eval(evidence_attributions)
-
-            # Ensure evidence_attributions_list is a list of floats
-            if isinstance(evidence_attributions_list, list):
-                attributions = [float(attr) for attr in evidence_attributions_list]
-            else:
-                attributions = []
-
-            # Zip spans and attributions
-            evidence_data = list(zip(spans, attributions))
-
-            # Normalize and format the predicted code
-            normalized_code = normalize_icd_code(predicted_code)
-            formatted_code = format_icd_code(normalized_code)
-            # Get the long title and type from the ICD descriptions
-            code_info = icd_code_descriptions.get(normalized_code, {'title': 'Unknown code', 'type': 'unknown', 'version': 'unknown'})
-            long_title = code_info['title']
-            code_type = code_info['type']
-            code_version = code_info['version']
-
-            # Store the data
-            if note_id not in prediction_results:
-                prediction_results[note_id] = []
-
-            prediction_results[note_id].append({
-                'predicted_code': predicted_code,
-                'formatted_code': formatted_code,
-                'long_title': long_title,
-                'code_type': code_type,
-                'code_version': code_version,
-                'predicted_code_probability': predicted_code_probability,
-                'evidence_data': evidence_data  # List of tuples (span, attribution)
+            predictions.setdefault(note_id, []).append({
+                "predicted_code": predicted_code,
+                "formatted_code": format_icd_code(normalized),
+                "long_title": info["title"],
+                "code_type": info["type"],
+                "code_version": info["version"],
+                "predicted_code_probability": probability,
+                "evidence_data": evidence_data,
             })
 
-    # Process each formatted_{note_id}.txt file
-    txt_files = glob.glob('results/formatted_texts/formatted_*.txt')
+    for note_id, items in predictions.items():
+        items.sort(key=lambda item: (-item["predicted_code_probability"], item["predicted_code"]))
 
-    for txt_file in txt_files:
-        # Extract note_id from filename
-        basename = os.path.basename(txt_file)
-        if basename.startswith('formatted_') and basename.endswith('.txt'):
-            note_id = basename[len('formatted_'):-len('.txt')]
-            # Now process the file
-            if note_id not in prediction_results:
-                print(f"No predictions for note_id {note_id}")
-                continue
+    LOGGER.info("Loaded %d predictions across %d notes", rows_seen, len(predictions))
+    return predictions
 
-            # Read the text
-            with open(txt_file, 'r', encoding='utf-8') as f:
-                text = f.read()
 
-            # Bold literals in text and get shifts
-            bolded_text, shifts = bold_literals_in_text(text, section_literals)
+def js_string_literal(text: str) -> str:
+    """JSON-encode a Python string into a JS-safe string literal.
 
-            # Adjust evidence spans indices
-            predicted_data = prediction_results[note_id]
-            evidence_spans_data = {}
-            for item in predicted_data:
-                code = item['predicted_code']
-                spans_attributions = item['evidence_data']
-                # Adjust spans
-                adjusted_spans_attributions = []
-                for (span, attribution) in spans_attributions:
-                    adjusted_span = adjust_evidence_spans([span], shifts)[0]
-                    adjusted_spans_attributions.append({'span': adjusted_span, 'attribution': attribution})
+    Forces ASCII so that JSON line/paragraph separators (U+2028, U+2029),
+    which are valid in JSON but illegal inside a JS string literal, are
+    safely escaped. Also rewrites any literal ``</`` so the resulting HTML
+    cannot be terminated by an embedded ``</script>``.
+    """
+    return json.dumps(text, ensure_ascii=True).replace("</", "<\\/")
 
-                # Update the item
-                item['adjusted_spans_attributions'] = adjusted_spans_attributions
 
-                # Build evidence_spans_data
-                evidence_spans_data[code] = {
-                    'probability': item['predicted_code_probability'],
-                    'formatted_code': item['formatted_code'],
-                    'long_title': item['long_title'],
-                    'code_type': item['code_type'],
-                    'code_version': item['code_version'],
-                    'evidence_spans': adjusted_spans_attributions  # List of dicts with 'span' and 'attribution'
-                }
+def js_json_literal(value) -> str:
+    """JSON-encode a Python value for embedding inside a <script> tag."""
+    return json.dumps(value, ensure_ascii=True).replace("</", "<\\/")
 
-            # Convert evidence_spans_data to JSON
-            evidence_spans_json = json.dumps(evidence_spans_data)
 
-            # Generate the HTML content
-            html_content = f'''<!DOCTYPE html>
+def render_html(note_id: str, bolded_text: str, evidence_spans_data: dict) -> str:
+    evidence_json = js_json_literal(evidence_spans_data)
+    original_text_js = js_string_literal(bolded_text)
+    return f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -381,11 +367,9 @@ Examples:
         #thresholds input[type="range"] {{
             width: 100%;
         }}
-        #threshold-values {{
-            display: flex;
-            justify-content: space-between;
-            font-size: 12px;
-            color: #757575;
+        .threshold-value {{
+            font-weight: bold;
+            color: #1565c0;
         }}
     </style>
 </head>
@@ -393,20 +377,18 @@ Examples:
     <div id="main-container">
         <div id="main-text">
             <h1>Document {note_id}</h1>
-            <div id="text-content">{bolded_text}</div>
+            <div id="text-content"></div>
         </div>
         <div id="side-bar">
             <h2>Predicted Codes</h2>
                 <div id="thresholds">
                     <label for="code-threshold">
-                        Code Prediction Confidence
-                        <span id="code-threshold-value" style="display: none;"></span>
+                        Code Prediction Confidence (&ge; <span id="code-threshold-value" class="threshold-value"></span>)
                     </label>
                     <input type="range" id="code-threshold" min="0.4" max="1" step="0.01" value="0.7">
 
                     <label for="evidence-threshold">
-                        Evidence Confidence (Attribution Threshold)
-                        <span id="evidence-threshold-value" style="display: none;"></span>
+                        Evidence Confidence (&ge; <span id="evidence-threshold-value" class="threshold-value"></span>)
                     </label>
                     <input type="range" id="evidence-threshold" min="0.0" max="0.02" step="0.001" value="0.01">
                 </div>
@@ -418,88 +400,87 @@ Examples:
         </div>
     </div>
     <script>
-        var evidence_spans_data = {evidence_spans_json};
-
-        var originalText = `{bolded_text}`;
+        var evidence_spans_data = {evidence_json};
+        var originalText = {original_text_js};
 
         var codeThresholdInput = document.getElementById('code-threshold');
         var codeThresholdValue = document.getElementById('code-threshold-value');
         var evidenceThresholdInput = document.getElementById('evidence-threshold');
         var evidenceThresholdValue = document.getElementById('evidence-threshold-value');
         var codeList = document.getElementById('code-list');
+        var textContent = document.getElementById('text-content');
         var selectedCode = null;
 
         function updateThresholdValues() {{
-            codeThresholdValue.textContent = codeThresholdInput.value;
-            evidenceThresholdValue.textContent = evidenceThresholdInput.value;
+            codeThresholdValue.textContent = parseFloat(codeThresholdInput.value).toFixed(2);
+            evidenceThresholdValue.textContent = parseFloat(evidenceThresholdInput.value).toFixed(3);
+        }}
+
+        function computeFilteredSpans(data, evidenceThreshold) {{
+            var filtered = data.evidence_spans.filter(function(item) {{
+                return item.attribution >= evidenceThreshold;
+            }});
+            if (filtered.length === 0 && data.evidence_spans.length > 0) {{
+                // Predictions are pre-sorted by descending attribution, so the
+                // top-attribution span is always the first element.
+                filtered = [data.evidence_spans[0]];
+            }}
+            return filtered;
         }}
 
         function filterCodes() {{
             var codeThreshold = parseFloat(codeThresholdInput.value);
             var evidenceThreshold = parseFloat(evidenceThresholdInput.value);
-
-            // Keep track of the previously selected code
             var prevSelectedCode = selectedCode;
 
-            // Clear code list
             codeList.innerHTML = '';
 
-            var codes = Object.keys(evidence_spans_data);
-            codes.forEach(function(code) {{
+            Object.keys(evidence_spans_data).forEach(function(code) {{
                 var data = evidence_spans_data[code];
-                if (data.probability >= codeThreshold) {{
-                    // Filter evidence spans
-                    var filteredSpans = data.evidence_spans.filter(function(item) {{
-                        return item.attribution >= evidenceThreshold;
-                    }});
-                    if (filteredSpans.length === 0 && data.evidence_spans.length > 0) {{
-                        // Include the highest attribution evidence span
-                        filteredSpans = [data.evidence_spans.reduce(function(prev, current) {{
-                            return (prev.attribution > current.attribution) ? prev : current
-                        }})];
-                    }}
-                    if (filteredSpans.length > 0) {{
-                        // Store filtered spans in data
-                        data.filtered_spans = filteredSpans;
-                        // Add code to list
-                        var listItem = document.createElement('li');
-                        var radioInput = document.createElement('input');
-                        radioInput.type = 'radio';
-                        radioInput.name = 'code';
-                        radioInput.value = code;
-                        radioInput.id = 'code_' + code;
-                        if (code === prevSelectedCode) {{
-                            radioInput.checked = true;
-                        }}
-                        radioInput.addEventListener('change', function() {{
-                            if (this.checked) {{
-                                onCodeSelected(this.value);
-                            }}
-                        }});
-                        var label = document.createElement('label');
-                        label.htmlFor = 'code_' + code;
-                        var codeTypeIcon = data.code_type === 'diagnosis' ? '' : (data.code_type === 'procedure' ? '️' : '');
-                        label.innerHTML = codeTypeIcon + ' <strong>' + data.formatted_code + '</strong>: ' + data.long_title;
-                        listItem.appendChild(radioInput);
-                        listItem.appendChild(label);
-                        codeList.appendChild(listItem);
-                    }}
+                if (data.probability < codeThreshold) {{
+                    return;
                 }}
+                var filteredSpans = computeFilteredSpans(data, evidenceThreshold);
+                if (filteredSpans.length === 0) {{
+                    return;
+                }}
+                data.filtered_spans = filteredSpans;
+
+                var listItem = document.createElement('li');
+                var radioInput = document.createElement('input');
+                radioInput.type = 'radio';
+                radioInput.name = 'code';
+                radioInput.value = code;
+                radioInput.id = 'code_' + code;
+                if (code === prevSelectedCode) {{
+                    radioInput.checked = true;
+                }}
+                radioInput.addEventListener('change', function() {{
+                    if (this.checked) {{
+                        onCodeSelected(this.value);
+                    }}
+                }});
+                var label = document.createElement('label');
+                label.htmlFor = 'code_' + code;
+                var codeTypeLabel = data.code_type === 'diagnosis'
+                    ? '[Dx]'
+                    : (data.code_type === 'procedure' ? '[Px]' : '[?]');
+                label.innerHTML = codeTypeLabel + ' <strong>' + data.formatted_code + '</strong>: ' + data.long_title;
+                listItem.appendChild(radioInput);
+                listItem.appendChild(label);
+                codeList.appendChild(listItem);
             }});
 
-            // If the previously selected code is still available, re-select it
             if (prevSelectedCode && evidence_spans_data[prevSelectedCode] && evidence_spans_data[prevSelectedCode].filtered_spans) {{
                 selectedCode = prevSelectedCode;
                 highlightSelectedCode();
             }} else {{
-                // Reset text without highlights
                 selectedCode = null;
-                document.getElementById('text-content').innerHTML = originalText;
+                textContent.innerHTML = originalText;
             }}
         }}
 
         function highlightText(spans) {{
-            var text = originalText;
             var result = [];
             var last_index = 0;
             spans.sort(function(a, b) {{ return a[0] - b[0]; }});
@@ -507,15 +488,15 @@ Examples:
                 var start = spans[i][0];
                 var end = spans[i][1];
                 if (start > last_index) {{
-                    result.push(text.substring(last_index, start));
+                    result.push(originalText.substring(last_index, start));
                 }}
-                result.push('<span class="highlight">' + text.substring(start, end) + '</span>');
+                result.push('<span class="highlight">' + originalText.substring(start, end) + '</span>');
                 last_index = end;
             }}
-            if (last_index < text.length) {{
-                result.push(text.substring(last_index));
+            if (last_index < originalText.length) {{
+                result.push(originalText.substring(last_index));
             }}
-            document.getElementById('text-content').innerHTML = result.join('');
+            textContent.innerHTML = result.join('');
         }}
 
         function onCodeSelected(code) {{
@@ -529,8 +510,7 @@ Examples:
                 var spans = data.filtered_spans.map(function(item) {{ return item.span; }});
                 highlightText(spans);
             }} else {{
-                // Reset text without highlights
-                document.getElementById('text-content').innerHTML = originalText;
+                textContent.innerHTML = originalText;
             }}
         }}
 
@@ -541,27 +521,14 @@ Examples:
 
         evidenceThresholdInput.addEventListener('input', function() {{
             updateThresholdValues();
-            // Only need to update the evidence spans for the selected code
             var evidenceThreshold = parseFloat(evidenceThresholdInput.value);
-            var codes = Object.keys(evidence_spans_data);
-
-            codes.forEach(function(code) {{
+            var codeThreshold = parseFloat(codeThresholdInput.value);
+            Object.keys(evidence_spans_data).forEach(function(code) {{
                 var data = evidence_spans_data[code];
-                if (data.probability >= parseFloat(codeThresholdInput.value)) {{
-                    var filteredSpans = data.evidence_spans.filter(function(item) {{
-                        return item.attribution >= evidenceThreshold;
-                    }});
-                    if (filteredSpans.length === 0 && data.evidence_spans.length > 0) {{
-                        // Include the highest attribution evidence span
-                        filteredSpans = [data.evidence_spans.reduce(function(prev, current) {{
-                            return (prev.attribution > current.attribution) ? prev : current
-                        }})];
-                    }}
-                    data.filtered_spans = filteredSpans;
+                if (data.probability >= codeThreshold) {{
+                    data.filtered_spans = computeFilteredSpans(data, evidenceThreshold);
                 }}
             }});
-
-            // Update highlights if a code is selected
             if (selectedCode) {{
                 highlightSelectedCode();
             }}
@@ -569,25 +536,155 @@ Examples:
 
         document.addEventListener('DOMContentLoaded', function() {{
             updateThresholdValues();
+            textContent.innerHTML = originalText;
             filterCodes();
-            // Initialize with original text
-            document.getElementById('text-content').innerHTML = originalText;
         }});
     </script>
 </body>
 </html>
-'''
+"""
 
-            # Create output directory and save the HTML file
-            output_dir = 'results/visualised_notes'
-            os.makedirs(output_dir, exist_ok=True)
-            
-            html_filename = f'{note_id}.html'
-            html_filepath = os.path.join(output_dir, html_filename)
-            with open(html_filepath, 'w', encoding='utf-8') as f:
-                f.write(html_content)
 
-            print(f"Generated HTML file for note_id {note_id}: {html_filepath}")
+def render_note(
+    note_id: str,
+    formatted_text: str,
+    note_predictions: list[dict],
+    section_literals: set[str],
+) -> str:
+    bolded_text, shifts = bold_literals_in_text(formatted_text, section_literals)
+
+    evidence_spans_data: dict[str, dict] = {}
+    for item in note_predictions:
+        adjusted_spans_attributions = [
+            {"span": adjust_evidence_spans([span], shifts)[0], "attribution": attribution}
+            for span, attribution in item["evidence_data"]
+        ]
+        evidence_spans_data[item["predicted_code"]] = {
+            "probability": item["predicted_code_probability"],
+            "formatted_code": item["formatted_code"],
+            "long_title": item["long_title"],
+            "code_type": item["code_type"],
+            "code_version": item["code_version"],
+            "evidence_spans": adjusted_spans_attributions,
+        }
+
+    return render_html(note_id, bolded_text, evidence_spans_data)
+
+
+def visualise(
+    inference_file: Path,
+    formatted_dir: Path,
+    output_dir: Path,
+) -> None:
+    if not SECTION_PATTERNS_FILE.exists():
+        raise FileNotFoundError(f"Section patterns file not found: {SECTION_PATTERNS_FILE}")
+    if not formatted_dir.exists():
+        raise FileNotFoundError(
+            f"Formatted-texts directory not found: {formatted_dir}. "
+            "Run ner/extract_entities.py with --save-formatted-texts first."
+        )
+
+    section_literals = load_section_literals(SECTION_PATTERNS_FILE)
+    icd_descriptions = load_icd_descriptions()
+    predictions = load_predictions(inference_file, icd_descriptions)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    txt_files = sorted(formatted_dir.glob("formatted_*.txt"))
+    if not txt_files:
+        LOGGER.warning("No formatted_*.txt files found under %s", formatted_dir)
+        return
+
+    written = 0
+    skipped_no_predictions: list[str] = []
+    for txt_file in txt_files:
+        note_id = txt_file.stem[len("formatted_"):]
+        if note_id not in predictions:
+            skipped_no_predictions.append(note_id)
+            continue
+
+        formatted_text = txt_file.read_text(encoding="utf-8")
+        html = render_note(note_id, formatted_text, predictions[note_id], section_literals)
+
+        out_path = output_dir / f"{note_id}.html"
+        out_path.write_text(html, encoding="utf-8")
+        LOGGER.info("Wrote %s", out_path)
+        written += 1
+
+    if skipped_no_predictions:
+        LOGGER.info(
+            "Skipped %d formatted note(s) with no matching predictions (e.g. %s)",
+            len(skipped_no_predictions),
+            ", ".join(skipped_no_predictions[:3]),
+        )
+
+    notes_without_text = sorted(set(predictions) - {p.stem[len("formatted_"):] for p in txt_files})
+    if notes_without_text:
+        LOGGER.warning(
+            "%d predicted note(s) have no formatted_<note_id>.txt under %s (e.g. %s). "
+            "Re-run extract_entities.py with --save-formatted-texts to include them.",
+            len(notes_without_text),
+            formatted_dir,
+            ", ".join(notes_without_text[:3]),
+        )
+
+    LOGGER.info("Generated %d HTML file(s) in %s", written, output_dir)
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "inference_file",
+        type=Path,
+        help="Path to the inference results CSV with evidence spans, as produced by "
+             "external/plm_ca/infer_with_explanations.py.",
+    )
+    parser.add_argument(
+        "--formatted-dir",
+        "--formatted_dir",
+        dest="formatted_dir",
+        type=Path,
+        default=DEFAULT_FORMATTED_DIR,
+        help=f"Directory containing formatted_<note_id>.txt files "
+             f"(default: {DEFAULT_FORMATTED_DIR}). Point at a per-run "
+             "subdirectory if stale formatted texts from earlier runs would "
+             "otherwise be picked up.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        "--output_dir",
+        dest="output_dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help=f"Directory to write the per-note HTML files into "
+             f"(default: {DEFAULT_OUTPUT_DIR}).",
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=LOG_LEVELS,
+        help="Logging verbosity (default: INFO).",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    configure_logging(args.log_level)
+
+    try:
+        visualise(
+            inference_file=args.inference_file,
+            formatted_dir=args.formatted_dir,
+            output_dir=args.output_dir,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        LOGGER.error("%s", exc)
+        raise SystemExit(2)
+
 
 if __name__ == "__main__":
     main()

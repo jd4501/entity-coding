@@ -1,0 +1,45 @@
+Chief Complaint:
+Fever and shortness of breath for 4 days.
+History of Present Illness:
+The patient is a 34-year-old female with a history of asthma and seasonal allergies who presented with a 4-day history of fever (maximum 101.8°F), productive cough with green sputum, and progressive shortness of breath.
+Symptoms began after recent exposure to a family member with an upper respiratory infection.
+She denied chest pain, hemoptysis, or recent travel.
+Physical Examination:
+General: Mild respiratory distress, fatigued appearance.
+Vitals:
+Temperature: 100.9°F
+Heart Rate: 110 bpm
+Blood Pressure: 126/78 mmHg
+Respiratory Rate: 22 bpm
+SpO2: 93% on room air
+Lungs: Diffuse wheezing and crackles in the right lower lung field.
+Other: No jugular venous distension, normal cardiovascular and neurological examinations.
+Pertinent Results
+Blood Tests (Performed 11/16/2024):
+Complete Blood Count (CBC):
+WBC: 13,800/mm³ (↑)
+Hemoglobin: 12.6 g/dL
+Platelets: 320,000/mm³
+Comprehensive Metabolic Panel (CMP):
+Sodium: 137 mmol/L
+Potassium: 4.0 mmol/L
+Chloride: 102 mmol/L
+BUN: 16 mg/dL
+Creatinine: 0.9 mg/dL
+Inflammatory Markers:
+C-Reactive Protein (CRP): 7.2 mg/dL (↑)
+Microbiology:
+Sputum Culture: Positive for Streptococcus pneumoniae.
+Imaging:
+Chest X-ray (11/16/2024): Right lower lobe consolidation consistent with pneumonia.
+Brief Hospital Course:
+The patient was admitted for community-acquired pneumonia and mild hypoxemia.
+She was started on intravenous ceftriaxone and oral azithromycin.
+Supplemental oxygen via nasal cannula at 2 L/min was initiated to maintain SpO2 above 94%. Bronchodilator therapy with albuterol was used to address asthma exacerbation.
+Over the course of her hospitalization, the patient showed significant improvement in oxygenation and respiratory symptoms.
+She transitioned to oral antibiotics on hospital day 4 and no longer required supplemental oxygen at the time of discharge.
+She received education on proper asthma management, pneumonia recovery, and signs of worsening respiratory symptoms.
+Discharge Diagnoses:
+Community-acquired pneumonia (Streptococcus pneumoniae).
+Acute asthma exacerbation.
+Allergic rhinitis.

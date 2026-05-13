@@ -1,0 +1,11 @@
+- name: SaveBestModelCallback
+  configs:
+    split: validation
+    target: all
+    metric: map
+- name: EarlyStoppingCallback
+  configs:
+    split: validation
+    target: all
+    metric: map
+    patience: 3

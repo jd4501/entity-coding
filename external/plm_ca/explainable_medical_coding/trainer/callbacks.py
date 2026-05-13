@@ -13,7 +13,7 @@ import wandb
 
 load_dotenv(find_dotenv())
 
-experiment_path = os.environ["EXPERIMENT_PATH"]
+experiment_path = os.environ.get("EXPERIMENT_PATH", "models")
 
 FORMATTING_PATTERN = r"\[([^\]]+)\]"
 FORMATTING_REGEX = re.compile(FORMATTING_PATTERN)
